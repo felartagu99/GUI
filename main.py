@@ -350,9 +350,6 @@ class ConfirmationDialog(QDialog):
         
         self.setLayout(layout)
 
-
-
-
 class CameraApp(QWidget):
     def __init__(self):
         super().__init__()
@@ -379,8 +376,6 @@ class CameraApp(QWidget):
         self.upload_button = self.create_button("Cargar Imágenes", "#e67e22", "#d35400", self.upload_and_label_image)
         self.dir_button = self.create_button("Seleccionar Directorio", "#f1c40f", "#f39c12", self.select_directory)
         self.exit_button = self.create_button("Salir", "#e74c3c", "#c0392b", self.close_application)
-
-        # Botón para abrir la interfaz de entrenamiento
         self.training_button = self.create_button("Entrenamiento", "#9C27B0", "#8E24AA", self.open_training_interface)
 
         # Grupo de botones de modelo
@@ -398,7 +393,7 @@ class CameraApp(QWidget):
         # Conectar señales de cambio de selección
         self.dino_button.toggled.connect(self.update_format_combo)
         self.sam_button.toggled.connect(self.update_format_combo)
-
+        
         # Diseño de la interfaz
         main_layout = QVBoxLayout()
         main_layout.addWidget(self.camera_label, alignment=Qt.AlignCenter)
@@ -449,6 +444,15 @@ class CameraApp(QWidget):
         button.clicked.connect(callback)
         return button
 
+    def update_format_combo(self):
+            self.format_combo.clear()
+            if self.sam_button.isChecked():
+                self.format_combo.addItem("COCO with Segmentation")
+            else:
+                self.format_combo.addItem("Pascal-VOC")
+                self.format_combo.addItem("COCO")
+                self.format_combo.addItem("YOLO")
+
     def open_training_interface(self):
         self.training_interface = TrainingInterface()
         self.training_interface.show()
@@ -457,11 +461,10 @@ class CameraApp(QWidget):
     def update_format_combo(self):
         self.format_combo.clear()
         if self.dino_button.isChecked():
-            self.format_combo.addItems(["Pascal-VOC", "COCO", "COCO with Segmentation", "YOLO"])
+            self.format_combo.addItems(["Pascal-VOC", "COCO", "YOLO"])
         elif self.sam_button.isChecked():
-            self.format_combo.addItems(["Pascal-VOC", "COCO", "COCO with Segmentation", "YOLO"])
-  
-
+            self.format_combo.addItems(["COCO with Segmentation"])
+ 
     def load_models(self):
         # Cargar modelo GroundingDino
         self.groundingdino_model = load_model("./GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py", "./checkpoints/groundingdino_swint_ogc.pth")
@@ -737,8 +740,6 @@ class CameraApp(QWidget):
 
         else:
             QMessageBox.critical(self, "Error", "No se pudo capturar la imagen.")
-
-
 
     def capture_and_label_image_from_path(self, image_path, image_id):
         # Ejecutar GroundingDINO
