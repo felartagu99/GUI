@@ -27,11 +27,11 @@ Esta aplicación de cámara permite capturar imágenes desde una cámara conecta
 ## Instalación
 1. Clonar el repositorio:
     ```sh
-    git clone https://github.com/tu_usuario/tu_repositorio.git
+    git clone https://github.com/felartagu99/GUI.git
     ```
 2. Navegar al directorio del proyecto:
     ```sh
-    cd tu_repositorio
+    cd GUI
     ```
 3. Crear un entorno virtual e instalar los requisitos:
     ```sh
