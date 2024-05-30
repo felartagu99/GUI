@@ -464,10 +464,10 @@ class CameraApp(QWidget):
 
     def load_models(self):
         # Cargar modelo GroundingDino
-        self.groundingdino_model = load_model("./dino_sam/GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py", "./dino_sam/weights/groundingdino_swint_ogc.pth")
+        self.groundingdino_model = load_model("./GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py", "./checkpoints/groundingdino_swint_ogc.pth")
 
         # Cargar modelo SAM
-        sam_checkpoint = "./dino_sam/weights/sam_vit_h_4b8939.pth"
+        sam_checkpoint = "./checkpoints/sam_vit_h_4b8939.pth"
         model_type = "vit_h"
         self.sam_model = sam_model_registry[model_type](checkpoint=sam_checkpoint)
         self.sam_predictor = SamPredictor(self.sam_model)
