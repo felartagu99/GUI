@@ -20,10 +20,8 @@ from xml.dom import minidom
 from groundingdino.util.inference import load_model, load_image, predict, annotate
 from GroundingDINO.groundingdino.util import box_ops
 
-# Importa la nueva interfaz de entrenamiento
-from training_interface import TrainingInterface
+from welcome_interface import WelcomeInterface
 
-#Funciones aux para poder crear directorios y generar nombres con id
 def create_dir(path):
     if not os.path.exists(path):
         os.makedirs(path)
@@ -351,10 +349,14 @@ class ConfirmationDialog(QDialog):
         self.setLayout(layout)
 
 class CameraApp(QWidget):
-    def __init__(self):
+    def __init__(self, capture_dir, labels, confidence_threshold):
         super().__init__()
         self.setWindowTitle("Aplicación de Cámara")
         self.resize(800, 600)
+        
+        self.capture_dir = capture_dir
+        self.labels = labels
+        self.confidence_threshold = confidence_threshold
 
         # Barra de progreso
         self.progress_bar = QProgressBar(self)
@@ -376,7 +378,7 @@ class CameraApp(QWidget):
         self.upload_button = self.create_button("Cargar Imágenes", "#e67e22", "#d35400", self.upload_and_label_image)
         self.dir_button = self.create_button("Seleccionar Directorio", "#f1c40f", "#f39c12", self.select_directory)
         self.exit_button = self.create_button("Salir", "#e74c3c", "#c0392b", self.close_application)
-        self.training_button = self.create_button("Entrenamiento", "#9C27B0", "#8E24AA", self.open_training_interface)
+        self.training_button = self.create_button("Retroceder a pestaña anterior", "#9C27B0", "#8E24AA", self.open_welcome_interface)
 
         # Grupo de botones de modelo
         self.model_group = QButtonGroup(self)
@@ -453,17 +455,10 @@ class CameraApp(QWidget):
                 self.format_combo.addItem("COCO")
                 self.format_combo.addItem("YOLO")
 
-    def open_training_interface(self):
-        self.training_interface = TrainingInterface()
-        self.training_interface.show()
-        self.close()  # Minimizar la ventana actual
-    
-    def update_format_combo(self):
-        self.format_combo.clear()
-        if self.dino_button.isChecked():
-            self.format_combo.addItems(["Pascal-VOC", "COCO", "YOLO"])
-        elif self.sam_button.isChecked():
-            self.format_combo.addItems(["COCO with Segmentation"])
+    def open_welcome_interface(self):
+        self.welcome_interface = WelcomeInterface()
+        self.welcome_interface.show()
+        self.close() 
  
     def load_models(self):
         # Cargar modelo GroundingDino
@@ -828,10 +823,9 @@ class CameraApp(QWidget):
             QMessageBox.information(self, "Cancelado", "Captura y etiquetado cancelados por el usuario.")
         
         print("BOXES: ", boxes)
-
-            
+          
 if __name__ == "__main__":
     app = QApplication(sys.argv)
-    window = CameraApp()
+    window = WelcomeInterface()
     window.show()
     sys.exit(app.exec_())
