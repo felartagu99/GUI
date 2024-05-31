@@ -21,6 +21,7 @@ from groundingdino.util.inference import load_model, load_image, predict, annota
 from GroundingDINO.groundingdino.util import box_ops
 
 from welcome_interface import WelcomeInterface
+from dataset_generation_interface import DatasetGenerationInterface 
 
 def create_dir(path):
     if not os.path.exists(path):
@@ -376,7 +377,7 @@ class CameraApp(QWidget):
         self.capture_button = self.create_button("Captura", "#3498db", "#2980b9", self.capture_and_label_image)
         self.add_label_button = self.create_button("Agregar Etiquetas", "#9b59b6", "#8e44ad", self.add_labels)
         self.upload_button = self.create_button("Cargar Imágenes", "#e67e22", "#d35400", self.upload_and_label_image)
-        self.dir_button = self.create_button("Seleccionar Directorio", "#f1c40f", "#f39c12", self.select_directory)
+        self.dataset_button = self.create_button("Generación de Dataset", "#f1c40f", "#f39c12", self.open_dataset_generation_interface)
         self.exit_button = self.create_button("Salir", "#e74c3c", "#c0392b", self.close_application)
         self.training_button = self.create_button("Retroceder a pestaña anterior", "#9C27B0", "#8E24AA", self.open_welcome_interface)
 
@@ -404,7 +405,7 @@ class CameraApp(QWidget):
         control_layout = QGridLayout()
         control_layout.addWidget(self.capture_button, 0, 0)
         control_layout.addWidget(self.upload_button, 1, 1)
-        control_layout.addWidget(self.dir_button, 1, 0)
+        control_layout.addWidget(self.dataset_button, 1, 0)  # Cambiar el botón aquí
         control_layout.addWidget(self.add_label_button, 0, 1)
         control_layout.addWidget(self.training_button, 2, 0, 1, 2)  # Añadir el botón de entrenamiento aquí
         control_layout.addWidget(self.exit_button, 3, 0, 1, 2)
@@ -445,6 +446,12 @@ class CameraApp(QWidget):
                              f"QPushButton:hover {{ background-color: {hover_color}; }}")
         button.clicked.connect(callback)
         return button
+
+    def open_dataset_generation_interface(self):
+        self.dataset_generation_interface = DatasetGenerationInterface()
+        self.dataset_generation_interface.show()
+        self.close()
+
 
     def update_format_combo(self):
             self.format_combo.clear()
