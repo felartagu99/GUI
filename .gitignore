@@ -1,2 +1,7 @@
 
 *.pyc
+/checkpoints
+/GroundingDINO
+/segment-anything
+__pycache__/main.cpython-311.pyc
+__pycache__/welcome_interface.cpython-311.pyc
