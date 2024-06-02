@@ -14,7 +14,7 @@ class WelcomeInterface(QWidget):
         super().__init__()
         self.setWindowTitle("Bienvenido a la Aplicación de Cámara")
         self.setFixedSize(500, 400)
-
+        
         # Layout principal
         self.layout = QVBoxLayout()
         self.setLayout(self.layout)
@@ -31,28 +31,30 @@ class WelcomeInterface(QWidget):
         # Botón para seleccionar directorio
         self.dir_button = QPushButton("Seleccionar Directorio", self)
         self.dir_button.setFont(QFont("Arial", 14))
-        self.dir_button.setIcon(QIcon("icons/folder.png"))  # Añadir icono si está disponible
+        self.dir_button.setIcon(QIcon("icons/folder.png"))
         self.dir_button.clicked.connect(self.select_directory)
         self.layout.addWidget(self.dir_button)
 
         # Botón para seleccionar etiquetas
         self.labels_button = QPushButton("Seleccionar Etiquetas", self)
         self.labels_button.setFont(QFont("Arial", 14))
-        self.labels_button.setIcon(QIcon("icons/label.png"))  # Añadir icono si está disponible
+        self.labels_button.setIcon(QIcon("icons/label.png"))
         self.labels_button.clicked.connect(self.add_labels)
         self.layout.addWidget(self.labels_button)
+
+        # Inicializar etiquetas
+        self.labels = []
 
         # Layout horizontal para el slider de confianza y su valor
         confidence_layout = QHBoxLayout()
         
-        # Slider para seleccionar umbral de confianza
         self.confidence_slider_label = QLabel("Seleccionar umbral de confianza:", self)
         self.confidence_slider_label.setFont(QFont("Arial", 14))
         confidence_layout.addWidget(self.confidence_slider_label)
 
         self.confidence_slider = QSlider(Qt.Horizontal, self)
         self.confidence_slider.setRange(0, 100)
-        self.confidence_slider.setValue(35)  # Valor inicial
+        self.confidence_slider.setValue(35)
         self.confidence_slider.setTickPosition(QSlider.TicksBelow)
         self.confidence_slider.setTickInterval(10)
         self.confidence_slider.valueChanged.connect(self.update_confidence_value)
@@ -67,20 +69,18 @@ class WelcomeInterface(QWidget):
         # Espacio entre slider y botón de comenzar
         self.layout.addStretch(1)
 
-        # Botón para comenzar
         self.start_button = QPushButton("Comenzar", self)
         self.start_button.setFont(QFont("Arial", 16, QFont.Bold))
         self.start_button.setStyleSheet("background-color: #4CAF50; color: white; padding: 10px; border-radius: 5px;")
         self.start_button.clicked.connect(self.start_main_window)
         self.layout.addWidget(self.start_button)
 
-        # Espacio final
         self.layout.addStretch(1)
 
-        # Inicializar variables
-        self.capture_dir = os.path.join(os.path.expanduser("~"), "Desktop", "Capturas")  # Directorio por defecto
+        self.capture_dir = os.path.join(os.path.expanduser("~"), "Desktop", "Capturas")
         self.labels = []
         self.confidence_threshold = 0.35
+
 
     def update_confidence_value(self, value):
         self.confidence_value_label.setText(f"{value}%")
@@ -91,6 +91,9 @@ class WelcomeInterface(QWidget):
         if dir_path:
             self.capture_dir = dir_path
             QMessageBox.information(self, "Directorio Seleccionado", f"Directorio seleccionado: {self.capture_dir}")
+
+    def get_labels(self):
+        return self.labels
 
     def add_labels(self):
         input_text, ok_pressed = QInputDialog.getText(self, "Etiquetas", "Introduce etiquetas separadas por comas:")
@@ -105,20 +108,21 @@ class WelcomeInterface(QWidget):
         else:
             QMessageBox.critical(self, "Error", "Se ha cancelado la entrada de etiquetas. Por favor, introduce etiquetas separadas por comas.")
 
+    
     def start_main_window(self):
-            from main import CameraApp  # Importamos aquí para evitar la importación circular
-            self.confidence_threshold = self.confidence_slider.value() / 100.0
-            if not self.capture_dir:
-                QMessageBox.critical(self, "Error", "Por favor, selecciona un directorio antes de continuar.")
-                return
-            if not self.labels:
-                QMessageBox.critical(self, "Error", "Por favor, añade etiquetas antes de continuar.")
-                return
-            self.hide()
-            self.main_window = CameraApp(self.capture_dir, self.labels, self.confidence_threshold)
-            self.main_window.show()
+        from main import CameraApp  # Importamos aquí para evitar la importación circular
+        self.confidence_threshold = self.confidence_slider.value() / 100.0
+        if not self.capture_dir:
+            QMessageBox.critical(self, "Error", "Por favor, selecciona un directorio antes de continuar.")
+            return
+        if not self.labels:
+            QMessageBox.critical(self, "Error", "Por favor, añade etiquetas antes de continuar.")
+            return
+        self.hide()
+        self.main_window = CameraApp(self.capture_dir, self.labels, self.confidence_threshold)
+        self.main_window.show()
 
-
+    
     def select_directory(self):
         options = QFileDialog.Options()
         dir_path = QFileDialog.getExistingDirectory(self, "Seleccionar Directorio", "", options=options)
