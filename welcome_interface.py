@@ -12,7 +12,7 @@ def create_dir(path):
 class WelcomeInterface(QWidget):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Bienvenido a la Aplicación de Cámara")
+        self.setWindowTitle("Bienvenido a la Aplicación de Etiquetado")
         self.setFixedSize(500, 400)
         
         # Layout principal
@@ -43,27 +43,6 @@ class WelcomeInterface(QWidget):
         # Inicializar etiquetas
         self.labels = []
 
-        # Layout horizontal para el slider de confianza y su valor
-        confidence_layout = QHBoxLayout()
-        
-        self.confidence_slider_label = QLabel("Seleccionar umbral de confianza:", self)
-        self.confidence_slider_label.setFont(QFont("Arial", 14))
-        confidence_layout.addWidget(self.confidence_slider_label)
-
-        self.confidence_slider = QSlider(Qt.Horizontal, self)
-        self.confidence_slider.setRange(0, 100)
-        self.confidence_slider.setValue(35)
-        self.confidence_slider.setTickPosition(QSlider.TicksBelow)
-        self.confidence_slider.setTickInterval(10)
-        self.confidence_slider.valueChanged.connect(self.update_confidence_value)
-        confidence_layout.addWidget(self.confidence_slider)
-
-        self.confidence_value_label = QLabel("35%", self)
-        self.confidence_value_label.setFont(QFont("Arial", 14))
-        confidence_layout.addWidget(self.confidence_value_label)
-
-        self.layout.addLayout(confidence_layout)
-
         # Espacio entre slider y botón de comenzar
         self.layout.addStretch(1)
 
@@ -82,12 +61,7 @@ class WelcomeInterface(QWidget):
         self.layout.addStretch(1)
 
         self.capture_dir = os.path.join(os.path.expanduser("~"), "Desktop", "Capturas")
-        self.labels = []
-        self.confidence_threshold = 0.35    
-
-    def update_confidence_value(self, value):
-        self.confidence_value_label.setText(f"{value}%")
-        self.confidence_threshold = value / 100.0
+        self.labels = [] 
 
     def select_directory(self):
         options = QFileDialog.Options()
@@ -99,9 +73,6 @@ class WelcomeInterface(QWidget):
     def get_labels(self):
         return self.labels
     
-    def get_confidence_threshold(self):
-        return self.confidence_threshold
-
     def add_labels(self):
         input_text, ok_pressed = QInputDialog.getText(self, "Etiquetas", "Introduce etiquetas separadas por comas:")
         if ok_pressed:
@@ -127,6 +98,5 @@ class WelcomeInterface(QWidget):
             QMessageBox.critical(self, "Error", "Por favor, añade etiquetas antes de continuar.")
             return
         self.hide()
-        self.main_window = CameraApp(self.capture_dir, self.labels, self.confidence_threshold)
+        self.main_window = CameraApp(self.capture_dir, self.labels)
         self.main_window.show()
-
