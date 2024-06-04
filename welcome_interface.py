@@ -4,6 +4,7 @@ from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QLabel, QFileDia
                              QInputDialog, QHBoxLayout)
 from PyQt5.QtGui import QFont, QIcon
 from PyQt5.QtCore import Qt
+from dataset_generation_interface import DatasetGenerationInterface
 
 def create_dir(path):
     if not os.path.exists(path):
@@ -52,11 +53,18 @@ class WelcomeInterface(QWidget):
         self.start_button.clicked.connect(self.start_main_window)
         self.layout.addWidget(self.start_button)
 
+        self.dataset_generation_interface_button = QPushButton("Ir a Generar el Dataset", self)
+        self.dataset_generation_interface_button.setFont(QFont("Arial", 16, QFont.Bold))
+        self.dataset_generation_interface_button.setStyleSheet("background-color: #43b6d5; color: white; padding: 10px; border-radius: 5px;")
+        self.dataset_generation_interface_button.clicked.connect(self.start_dataset_generation_interface)
+        self.layout.addWidget(self.dataset_generation_interface_button)
+
         self.close_button = QPushButton("Salir", self)
         self.close_button.setFont(QFont("Arial", 16, QFont.Bold))
         self.close_button.setStyleSheet("background-color: #c0392b; color: white; padding: 10px; border-radius: 5px;")
         self.close_button.clicked.connect(self.close_application)
         self.layout.addWidget(self.close_button)
+
         
         self.layout.addStretch(1)
 
@@ -89,6 +97,10 @@ class WelcomeInterface(QWidget):
     def close_application(self):
         self.close()
     
+    def start_dataset_generation_interface(self):
+        self.dataset_generation_interface = DatasetGenerationInterface()
+        self.dataset_generation_interface.show()
+        
     def start_main_window(self):
         from main import CameraApp  # Importamos aquí para evitar la importación circular
         if not self.capture_dir:
