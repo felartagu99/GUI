@@ -279,8 +279,9 @@ def show_mask(mask, image, random_color=True):
 
 def draw_bounding_boxes(image, boxes, phrases):
     for box, phrase in zip(boxes, phrases):
+        color = np.concatenate([np.random.random(3), np.array([0.8])], axis=0)
         x1, y1, x2, y2 = box
-        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
         cv2.putText(image, phrase, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
     return image
 
@@ -946,7 +947,7 @@ class CameraApp(QWidget):
             self.process_next_image()
         else:
             QMessageBox.information(self, "Completado", "Todas las imágenes han sido procesadas.")
-           
+        
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = WelcomeInterface()
