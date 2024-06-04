@@ -41,11 +41,16 @@ Esta aplicación de cámara permite capturar imágenes desde una cámara conecta
     ```
 4. Descargar los modelos preentrenados y colocarlos en la carpeta `checkpoints`.
 
-## Uso
+## Manuel de uso
 1. Ejecutar la aplicación:
     ```sh
     python main.py
     ```
+2. En la pantalla de bienvenda:
+     * Seleccionar Directorio: En este botón se establece el directorio donde se guardan los etiquetados.
+     * Añadir etiquetas: Aquí se añaden los labels de los objetos que se van a capturar.
+     * Generación Dataset: En caso de disponer de un conjuunto de imágenes ya etiquedas puedes dirigirte directamente a la interfaz de generación y pruebas.
+     * Salir.
 2. Seleccionar la cámara desde el combo box.
 3. Seleccionar el modelo de etiquetado (GroundingDINO o GroundingDINO + SAM).
 4. Determinar los objetos que vamos a capturar mediante el boton "Agregar Etiquetas".
