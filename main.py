@@ -531,7 +531,7 @@ class CameraApp(QWidget):
             if ret:
                 self.display_image(frame)
             else:
-                print("Failed to read frame from camera!")
+                #print("Failed to read frame from camera!")
                 self.camera_label.setText("Error: Failed to read frame")
         else:
             print("Camera not available!")
@@ -818,11 +818,16 @@ class CameraApp(QWidget):
         annotated_image_path = os.path.join(self.capture_dir, f"annotated_image_{image_id}.jpg")
         cv2.imwrite(annotated_image_path, annotated_frame)
 
-        confidence_threshold = self.confidence_threshold
+        if not self.single_label_mode:
+            confidence_threshold = self.confidence_threshold
 
-        filtered_boxes = [box for box, logit in zip(boxes, logits) if logit >= confidence_threshold]
-        filtered_phrases = [phrase for phrase, logit in zip(phrases, logits) if logit >= confidence_threshold]
-        filtered_logits = [logit for logit in logits if logit >= confidence_threshold]
+            filtered_boxes = [box for box, logit in zip(boxes, logits) if logit >= confidence_threshold]
+            filtered_phrases = [phrase for phrase, logit in zip(phrases, logits) if logit >= confidence_threshold]
+            filtered_logits = [logit for logit in logits if logit >= confidence_threshold]
+        else:
+            filtered_boxes = boxes
+            filtered_phrases = phrases
+            filtered_logits = logits
 
         if not self.single_label_mode:
             if any(logit < confidence_threshold for logit in logits):
@@ -884,8 +889,11 @@ class CameraApp(QWidget):
 
                             shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
                             export_to_yolo(image_path, filtered_boxes, filtered_phrases, yolo_dir, combined_labels)
-
-            else:
+        elif self.single_label_mode:
+            # Mostrar la imagen anotada en el diálogo de confirmación
+            confirmation_dialog = ConfirmationDialog(annotated_frame, self)
+            
+            if confirmation_dialog.exec_() == QDialog.Accepted:
                 labels_path = os.path.join(self.capture_dir, f"labels_{image_id}.json")
                 with open(labels_path, "w") as f:
                     json.dump(combined_labels, f)
@@ -940,7 +948,7 @@ class CameraApp(QWidget):
 
                         shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
                         export_to_yolo(image_path, filtered_boxes, filtered_phrases, yolo_dir, combined_labels)
-
+        
         self.current_image_index += 1
         self.progress_bar.setValue(self.current_image_index)
         if self.current_image_index < len(self.image_paths):
