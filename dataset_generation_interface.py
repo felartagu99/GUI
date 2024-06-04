@@ -4,6 +4,7 @@ from PyQt5.QtCore import Qt
 import os
 import shutil
 import random
+import yaml
 
 class DatasetGenerationInterface(QWidget):
     def __init__(self, parent=None, welcome_interface_callback=None):
@@ -70,9 +71,9 @@ class DatasetGenerationInterface(QWidget):
             combo.addItem(f"{i}%")
         return combo
 
-    def split_dataset(self, split_function, dialog):
-        dialog.accept()
-        split_function()
+    def split_dataset(self, func, popup):
+        popup.accept()
+        func()
 
 
     def select_dataset(self):
@@ -118,19 +119,19 @@ class DatasetGenerationInterface(QWidget):
 
         layout.addWidget(QLabel("Elige uno de estos 4 formatos:"))
         formats = [("Yolo", self.split_dataset_yolo), 
-                   ("Coco", self.split_dataset_coco), 
-                   ("Pascal-Voc", self.split_dataset_pascal_voc), 
-                   ("Segmentación", self.split_dataset_segmentation)]
+                ("Coco", self.split_dataset_coco), 
+                ("Pascal-Voc", self.split_dataset_pascal_voc), 
+                ("Segmentación", self.split_dataset_segmentation)]
 
         for format_name, format_func in formats:
             button = QPushButton(format_name)
-            button.clicked.connect(lambda _, func=format_func: self.split_dataset(format_func, popup))
+            button.clicked.connect(lambda _, func=format_func: self.split_dataset(func, popup))
             layout.addWidget(button)
 
         layout.addWidget(button_box)
         popup.setLayout(layout)
         popup.exec_()
-    
+        
     
     def split_dataset_pascal_voc(self):
         if self.dataset_dir:
@@ -255,6 +256,7 @@ class DatasetGenerationInterface(QWidget):
 
             images = []
             annotations = {}
+            labels = set()
 
             # Recopilar archivos de imágenes
             for root, _, filenames in os.walk(images_dir):
@@ -271,6 +273,11 @@ class DatasetGenerationInterface(QWidget):
                         base_name = os.path.splitext(file)[0]
                         if base_name in annotations:
                             annotations[base_name].append(os.path.join(root, file))
+                            # Leer las etiquetas de los archivos de anotaciones
+                            with open(os.path.join(root, file), 'r') as f:
+                                for line in f:
+                                    label = line.strip().split()[0]
+                                    labels.add(label)
                         else:
                             annotations[base_name] = [os.path.join(root, file)]
 
@@ -302,6 +309,17 @@ class DatasetGenerationInterface(QWidget):
             copy_files(train_pairs, train_images_dir, train_annotations_dir)
             copy_files(valid_pairs, valid_images_dir, valid_annotations_dir)
             copy_files(test_pairs, test_images_dir, test_annotations_dir)
+
+            # Crear el archivo data.yaml
+            data = {
+                'train': os.path.abspath(train_images_dir),
+                'val': os.path.abspath(valid_images_dir),
+                'test': os.path.abspath(test_images_dir),
+                'names': list(labels)
+            }
+
+            with open(os.path.join(split_dir, 'data.yaml'), 'w') as yaml_file:
+                yaml.dump(data, yaml_file, default_flow_style=False)
 
             self.show_popup("Dataset dividido en carpetas 'train', 'valid' y 'test' con subcarpetas 'images' y 'annotations'.")
             self.status_label.setText("Dataset dividido en carpetas 'train', 'valid' y 'test' con subcarpetas 'images' y 'annotations'.")

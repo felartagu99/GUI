@@ -10,7 +10,7 @@ import torch
 from datetime import datetime
 from PyQt5.QtWidgets import (QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QMessageBox, QComboBox, QFileDialog, QInputDialog, QDialog, QProgressBar,
-                             QRadioButton, QButtonGroup,QGridLayout)
+                             QRadioButton, QButtonGroup,QGridLayout, QSlider, QDialogButtonBox)
 from PyQt5.QtGui import QPixmap, QImage, QFont
 from PyQt5.QtCore import Qt, QTimer
 from segment_anything import SamPredictor, sam_model_registry
@@ -279,8 +279,9 @@ def show_mask(mask, image, random_color=True):
 
 def draw_bounding_boxes(image, boxes, phrases):
     for box, phrase in zip(boxes, phrases):
+        color = np.concatenate([np.random.random(3), np.array([0.8])], axis=0)
         x1, y1, x2, y2 = box
-        cv2.rectangle(image, (x1, y1), (x2, y2), (0, 255, 0), 2)
+        cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
         cv2.putText(image, phrase, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
     return image
 
@@ -307,6 +308,39 @@ def annotate_with_masks(image, masks, bboxes, phrases, labels):
         cv2.putText(annotated_image, label, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
     
     return annotated_image
+
+class ConfidenceThresholdDialog(QDialog):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("Seleccionar Umbral de Confianza")
+
+        self.slider = QSlider(Qt.Horizontal)
+        self.slider.setMinimum(0)
+        self.slider.setMaximum(100)
+        self.slider.setValue(50)
+        self.slider.setTickInterval(10)
+        self.slider.setTickPosition(QSlider.TicksBelow)
+
+        self.threshold = QLabel("35%")
+        self.slider.valueChanged.connect(self.update_threshold)
+
+        layout = QVBoxLayout()
+        layout.addWidget(QLabel("Seleccione el umbral de confianza mínimo:"))
+        layout.addWidget(self.slider)
+        layout.addWidget(self.threshold)
+
+        buttons = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+
+        layout.addWidget(buttons)
+        self.setLayout(layout)
+
+    def update_threshold(self, value):
+        self.threshold.setText(f"{value}%")
+
+    def get_confidence_threshold(self):
+        return self.slider.value() / 100.0
 
 class ConfirmationDialog(QDialog):
     def __init__(self, image, parent=None):
@@ -351,7 +385,7 @@ class ConfirmationDialog(QDialog):
         self.setLayout(layout)
 
 class CameraApp(QWidget):
-    def __init__(self, capture_dir, labels, confidence_threshold):
+    def __init__(self, capture_dir, labels):
         super().__init__()
         self.setWindowTitle("Aplicación de Cámara")
         self.resize(800, 600)
@@ -359,7 +393,6 @@ class CameraApp(QWidget):
         self.capture_dir = capture_dir
         self.welcome_interface = WelcomeInterface()
         self.labels = labels
-        self.confidence_threshold = confidence_threshold
 
         # Barra de progreso
         self.progress_bar = QProgressBar(self)
@@ -441,7 +474,6 @@ class CameraApp(QWidget):
         self.load_models()
         self.change_camera(0)
 
-
     def create_button(self, text, color, hover_color, callback):
         button = QPushButton(text, self)
         button.setFont(QFont("Arial", 14))
@@ -454,7 +486,6 @@ class CameraApp(QWidget):
         self.dataset_generation_interface = DatasetGenerationInterface()
         self.dataset_generation_interface.show()
         self.close()
-
 
     def update_format_combo(self):
             self.format_combo.clear()
@@ -472,10 +503,10 @@ class CameraApp(QWidget):
  
     def load_models(self):
         # Cargar modelo GroundingDino
-        self.groundingdino_model = load_model("./GUI/GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py", "./GUI/checkpoints/groundingdino_swint_ogc.pth")
+        self.groundingdino_model = load_model("./GroundingDINO/groundingdino/config/GroundingDINO_SwinT_OGC.py", "./checkpoints/groundingdino_swint_ogc.pth")
 
         # Cargar modelo SAM
-        sam_checkpoint = "./GUI/checkpoints/sam_vit_h_4b8939.pth"
+        sam_checkpoint = "./checkpoints/sam_vit_h_4b8939.pth"
         model_type = "vit_h"
         self.sam_model = sam_model_registry[model_type](checkpoint=sam_checkpoint)
         self.sam_predictor = SamPredictor(self.sam_model)
@@ -512,52 +543,45 @@ class CameraApp(QWidget):
         if file_paths:
             self.image_paths = file_paths
             self.current_image_index = 0
-            
-            # Si ya hay etiquetas del WelcomeInterface, las utilizamos
+
             if not self.labels:
                 QMessageBox.critical(self, "Error", "No se han proporcionado etiquetas desde la interfaz de bienvenida. Por favor, añade etiquetas.")
                 return
 
-            # Crear un cuadro de diálogo con opciones
             mode_dialog = QMessageBox(self)
             mode_dialog.setWindowTitle("Modo de Etiquetado")
-            mode_dialog.setText("¿Cómo quieres etiquetar las imágenes?")
+            mode_dialog.setText("¿Cómo quieres que se muestren las imágenes al ser etiquetadas?")
             one_by_one_button = mode_dialog.addButton("Una a Una", QMessageBox.AcceptRole)
-            all_at_once_button = mode_dialog.addButton("Todas del Tirón", QMessageBox.RejectRole)
+            all_at_once_button = mode_dialog.addButton("Realizar todo el etiquetado sin mostrar previsualización", QMessageBox.RejectRole)
             mode_dialog.exec_()
-            
-            # Determinar el modo de etiquetado según la elección del usuario
+
             self.single_label_mode = (mode_dialog.clickedButton() == one_by_one_button)
+
+            if not self.single_label_mode:
+                threshold_dialog = ConfidenceThresholdDialog(self)
+                if threshold_dialog.exec_() == QDialog.Accepted:
+                    threshold = threshold_dialog.get_confidence_threshold()
+                    if threshold is not None:
+                        self.confidence_threshold = threshold
+                    else:
+                        QMessageBox.warning(self, "Advertencia", "Umbral inválido. Se usará el valor por defecto (0.5).")
 
             self.progress_bar.setMaximum(len(self.image_paths))
             self.progress_bar.setValue(0)
             self.process_next_image()
-
-
-
-
+            
     def process_next_image(self):
         if self.current_image_index < len(self.image_paths):
             original_image_path = self.image_paths[self.current_image_index]
             image_id = get_next_id(self.capture_dir, "captura", ".jpg")
 
-            # Renombrar la imagen cargada
             new_image_path = os.path.join(self.capture_dir, f"captura_{image_id}.jpg")
             shutil.copy(original_image_path, new_image_path)
 
-            # Procesar la imagen renombrada
             self.capture_and_label_image_from_path(new_image_path, image_id)
 
-            self.current_image_index += 1
-            self.progress_bar.setValue(self.current_image_index)
-            if self.current_image_index < len(self.image_paths):
-                self.process_next_image()
-            else:
-                QMessageBox.information(self, "Completado", "Todas las imágenes han sido procesadas.")
         else:
-            QMessageBox.information(self, "Error", "No hay imágenes para procesar.")
-
-
+            QMessageBox.information(self, "Completado", "Todas las imágenes han sido procesadas.")
 
     def change_camera(self, index):
         print("Selected camera index:", index)
@@ -604,7 +628,6 @@ class CameraApp(QWidget):
         else:
             QMessageBox.critical(self, "Error", "Se ha cancelado la entrada de etiquetas. Por favor, introduce etiquetas separadas por comas.")
 
-
     def close_application(self):
         self.camera.release()
         self.close()
@@ -613,7 +636,6 @@ class CameraApp(QWidget):
         np.random.seed(idx)
         return tuple(np.random.randint(0, 255, 3).tolist())
 
- 
     def capture_and_label_image(self):
         ret, frame = self.camera.read()
         if ret:
@@ -628,7 +650,6 @@ class CameraApp(QWidget):
             # Combinar etiquetas locales y etiquetas de WelcomeInterface
             combined_labels = self.labels + self.welcome_interface.get_labels()
             combined_labels = list(set(combined_labels))  # Eliminar duplicados
-            print(combined_labels)
 
             if self.dino_button.isChecked() or self.sam_button.isChecked():
                 # Ejecutar GroundingDINO
@@ -749,11 +770,9 @@ class CameraApp(QWidget):
             QMessageBox.critical(self, "Error", "No se pudo capturar la imagen.")
 
     def capture_and_label_image_from_path(self, image_path, image_id):
-        # Combinar etiquetas locales y etiquetas de WelcomeInterface
         combined_labels = self.labels + self.welcome_interface.get_labels()
-        combined_labels = list(set(combined_labels))  # Eliminar duplicados
+        combined_labels = list(set(combined_labels))
 
-        # Ejecutar GroundingDINO
         TEXT_PROMPT = ", ".join(combined_labels)
         BOX_THRESHOLD = 0.35
         TEXT_THRESHOLD = 0.25
@@ -768,119 +787,167 @@ class CameraApp(QWidget):
             device="cpu"
         )
 
-        annotated_frame = annotate(image_source=image_source, boxes=boxes, logits=logits, phrases=phrases)
+        boxes = torch.tensor(boxes)
+
+        if self.sam_button.isChecked():
+            sam_image = cv2.imread(image_path)
+            self.sam_predictor.set_image(sam_image)
+
+            masks = []
+            bboxes = []
+
+            H, W, _ = sam_image.shape
+            boxes_xyxy = box_ops.box_cxcywh_to_xyxy(boxes) * torch.tensor([W, H, W, H])
+
+            transformed_boxes = self.sam_predictor.transform.apply_boxes_torch(boxes_xyxy, image_source.shape[:2])
+            masks, _, _ = self.sam_predictor.predict_torch(
+                point_coords=None,
+                point_labels=None,
+                boxes=transformed_boxes,
+                multimask_output=False,
+            )
+
+            annotated_frame = cv2.imread(image_path)
+            for mask in masks:
+                annotated_frame = show_mask(mask[0], annotated_frame)
+
+            annotated_frame = draw_bounding_boxes(annotated_frame, boxes_xyxy.int().numpy(), phrases)
+        else:
+            annotated_frame = annotate(image_source=image_source, boxes=boxes, logits=logits, phrases=phrases)
+
         annotated_image_path = os.path.join(self.capture_dir, f"annotated_image_{image_id}.jpg")
         cv2.imwrite(annotated_image_path, annotated_frame)
 
-        # No mostrar el cuadro de diálogo de confirmación en el modo "Todas del Tirón"
+        confidence_threshold = self.confidence_threshold
+
+        filtered_boxes = [box for box, logit in zip(boxes, logits) if logit >= confidence_threshold]
+        filtered_phrases = [phrase for phrase, logit in zip(phrases, logits) if logit >= confidence_threshold]
+        filtered_logits = [logit for logit in logits if logit >= confidence_threshold]
+
         if not self.single_label_mode:
-            labels_path = os.path.join(self.capture_dir, f"labels_{image_id}.json")
-            with open(labels_path, "w") as f:
-                json.dump(combined_labels, f)
-            
-            export_format = self.format_combo.currentText()
-            
-            if export_format == "Pascal-VOC":
-                pascal_voc_dir = os.path.join(self.capture_dir, "exportation_in_pascalVOC")
-                annotations_dir = os.path.join(pascal_voc_dir, "Annotations")
-                images_dir = os.path.join(pascal_voc_dir, "images")
+            if any(logit < confidence_threshold for logit in logits):
+                confirmation_dialog = ConfirmationDialog(annotated_frame, self)
+                proceed_with_labeling = (confirmation_dialog.exec_() == QDialog.Accepted)
 
-                create_dir(pascal_voc_dir)
-                create_dir(annotations_dir)
-                create_dir(images_dir)
+                if proceed_with_labeling:
+                    labels_path = os.path.join(self.capture_dir, f"labels_{image_id}.json")
+                    with open(labels_path, "w") as f:
+                        json.dump(combined_labels, f)
 
-                shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
-                export_to_pascal_voc_annotations(image_path, boxes, phrases, annotations_dir, combined_labels)
+                    export_format = self.format_combo.currentText()
 
-            elif export_format == "COCO":
-                coco_dir = os.path.join(self.capture_dir, "exportation_in_COCO")
-                images_dir = os.path.join(coco_dir, "images")
-                annotations_dir = os.path.join(coco_dir, "annotations")
+                    if self.sam_button.isChecked():
+                        coco_segmentation_dir = os.path.join(self.capture_dir, "exportation_in_COCO_with_Segmentation")
+                        annotations_dir = os.path.join(coco_segmentation_dir, "annotations")
+                        images_dir = os.path.join(coco_segmentation_dir, "images")
 
-                create_dir(coco_dir)
-                create_dir(images_dir)
-                create_dir(annotations_dir)
+                        create_dir(coco_segmentation_dir)
+                        create_dir(annotations_dir)
+                        create_dir(images_dir)
 
-                shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
-                export_to_coco(image_path, boxes, phrases, coco_dir, combined_labels)
+                        shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
+                        export_to_coco_segmentation(image_path, combined_labels, boxes, masks, annotations_dir)
+                        QMessageBox.information(self, "Éxito", f"Imagen capturada y etiquetada con éxito en formato COCO with Segmentation.\nDirectorio: {self.capture_dir}")
+                    else:
+                        if export_format == "Pascal-VOC":
+                            pascal_voc_dir = os.path.join(self.capture_dir, "exportation_in_pascalVOC")
+                            annotations_dir = os.path.join(pascal_voc_dir, "Annotations")
+                            images_dir = os.path.join(pascal_voc_dir, "images")
 
-            elif export_format == "YOLO":
-                yolo_dir = os.path.join(self.capture_dir, "exportation_in_YOLO")
-                images_dir = os.path.join(yolo_dir, "images")
-                labels_dir = os.path.join(yolo_dir, "labels")
+                            create_dir(pascal_voc_dir)
+                            create_dir(annotations_dir)
+                            create_dir(images_dir)
 
-                create_dir(yolo_dir)
-                create_dir(images_dir)
-                create_dir(labels_dir)
+                            shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
+                            export_to_pascal_voc_annotations(image_path, filtered_boxes, filtered_phrases, annotations_dir, combined_labels)
 
-                shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
-                export_to_yolo(image_path, boxes, phrases, yolo_dir, combined_labels)
+                        elif export_format == "COCO":
+                            coco_dir = os.path.join(self.capture_dir, "exportation_in_COCO")
+                            images_dir = os.path.join(coco_dir, "images")
+                            annotations_dir = os.path.join(coco_dir, "annotations")
 
-            self.current_image_index += 1
-            self.progress_bar.setValue(self.current_image_index)
-            if self.current_image_index == len(self.image_paths):
-                QMessageBox.information(self, "Completado", "Todas las imágenes han sido procesadas.")
+                            create_dir(coco_dir)
+                            create_dir(images_dir)
+                            create_dir(annotations_dir)
 
-        else:
-            # Procesar según el modo de etiquetado seleccionado
-            confirmation_dialog = ConfirmationDialog(annotated_frame, self)
-            proceed_with_labeling = (confirmation_dialog.exec_() == QDialog.Accepted)
+                            shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
+                            export_to_coco(image_path, filtered_boxes, filtered_phrases, coco_dir, combined_labels)
 
-            if proceed_with_labeling:
+                        elif export_format == "YOLO":
+                            yolo_dir = os.path.join(self.capture_dir, "exportation_in_YOLO")
+                            images_dir = os.path.join(yolo_dir, "images")
+                            labels_dir = os.path.join(yolo_dir, "labels")
+
+                            create_dir(yolo_dir)
+                            create_dir(images_dir)
+                            create_dir(labels_dir)
+
+                            shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
+                            export_to_yolo(image_path, filtered_boxes, filtered_phrases, yolo_dir, combined_labels)
+
+            else:
                 labels_path = os.path.join(self.capture_dir, f"labels_{image_id}.json")
                 with open(labels_path, "w") as f:
                     json.dump(combined_labels, f)
-                
+
                 export_format = self.format_combo.currentText()
-                
-                if export_format == "Pascal-VOC":
-                    pascal_voc_dir = os.path.join(self.capture_dir, "exportation_in_pascalVOC")
-                    annotations_dir = os.path.join(pascal_voc_dir, "Annotations")
-                    images_dir = os.path.join(pascal_voc_dir, "images")
 
-                    create_dir(pascal_voc_dir)
+                if self.sam_button.isChecked():
+                    coco_segmentation_dir = os.path.join(self.capture_dir, "exportation_in_COCO_with_Segmentation")
+                    annotations_dir = os.path.join(coco_segmentation_dir, "annotations")
+                    images_dir = os.path.join(coco_segmentation_dir, "images")
+
+                    create_dir(coco_segmentation_dir)
                     create_dir(annotations_dir)
                     create_dir(images_dir)
 
                     shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
-                    export_to_pascal_voc_annotations(image_path, boxes, phrases, annotations_dir, combined_labels)
+                    export_to_coco_segmentation(image_path, combined_labels, boxes, masks, annotations_dir)
+                    QMessageBox.information(self, "Éxito", f"Imagen capturada y etiquetada con éxito en formato COCO with Segmentation.\nDirectorio: {self.capture_dir}")
+                else:
+                    if export_format == "Pascal-VOC":
+                        pascal_voc_dir = os.path.join(self.capture_dir, "exportation_in_pascalVOC")
+                        annotations_dir = os.path.join(pascal_voc_dir, "Annotations")
+                        images_dir = os.path.join(pascal_voc_dir, "images")
 
-                elif export_format == "COCO":
-                    coco_dir = os.path.join(self.capture_dir, "exportation_in_COCO")
-                    images_dir = os.path.join(coco_dir, "images")
-                    annotations_dir = os.path.join(coco_dir, "annotations")
+                        create_dir(pascal_voc_dir)
+                        create_dir(annotations_dir)
+                        create_dir(images_dir)
 
-                    create_dir(coco_dir)
-                    create_dir(images_dir)
-                    create_dir(annotations_dir)
+                        shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
+                        export_to_pascal_voc_annotations(image_path, filtered_boxes, filtered_phrases, annotations_dir, combined_labels)
 
-                    shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
-                    export_to_coco(image_path, boxes, phrases, coco_dir, combined_labels)
+                    elif export_format == "COCO":
+                        coco_dir = os.path.join(self.capture_dir, "exportation_in_COCO")
+                        images_dir = os.path.join(coco_dir, "images")
+                        annotations_dir = os.path.join(coco_dir, "annotations")
 
-                elif export_format == "YOLO":
-                    yolo_dir = os.path.join(self.capture_dir, "exportation_in_YOLO")
-                    images_dir = os.path.join(yolo_dir, "images")
-                    labels_dir = os.path.join(yolo_dir, "labels")
+                        create_dir(coco_dir)
+                        create_dir(images_dir)
+                        create_dir(annotations_dir)
 
-                    create_dir(yolo_dir)
-                    create_dir(images_dir)
-                    create_dir(labels_dir)
+                        shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
+                        export_to_coco(image_path, filtered_boxes, filtered_phrases, coco_dir, combined_labels)
 
-                    shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
-                    export_to_yolo(image_path, boxes, phrases, yolo_dir, combined_labels)
+                    elif export_format == "YOLO":
+                        yolo_dir = os.path.join(self.capture_dir, "exportation_in_YOLO")
+                        images_dir = os.path.join(yolo_dir, "images")
+                        labels_dir = os.path.join(yolo_dir, "labels")
 
-                self.current_image_index += 1
-                self.progress_bar.setValue(self.current_image_index)
-                if self.current_image_index == len(self.image_paths):
-                    QMessageBox.information(self, "Completado", "Todas las imágenes han sido procesadas.")
+                        create_dir(yolo_dir)
+                        create_dir(images_dir)
+                        create_dir(labels_dir)
 
-        print("BOXES: ", boxes)
+                        shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
+                        export_to_yolo(image_path, filtered_boxes, filtered_phrases, yolo_dir, combined_labels)
 
-
-
-
-
-          
+        self.current_image_index += 1
+        self.progress_bar.setValue(self.current_image_index)
+        if self.current_image_index < len(self.image_paths):
+            self.process_next_image()
+        else:
+            QMessageBox.information(self, "Completado", "Todas las imágenes han sido procesadas.")
+        
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     window = WelcomeInterface()
