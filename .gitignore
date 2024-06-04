@@ -3,3 +3,8 @@ checkpoints/groundingdino_swint_ogc.pth
 checkpoints/sam_vit_h_4b8939.pth
 GroundingDINO/
 *.pyc
+/checkpoints
+/GroundingDINO
+/segment-anything
+__pycache__/main.cpython-311.pyc
+__pycache__/welcome_interface.cpython-311.pyc
