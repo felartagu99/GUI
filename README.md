@@ -40,6 +40,10 @@ Esta aplicación de cámara permite capturar imágenes desde una cámara conecta
     pip install -r requirements.txt
     ```
 4. Descargar los modelos preentrenados y colocarlos en la carpeta `checkpoints`.
+   ```sh
+   --url https://github.com/facebookresearch/segment-anything.git
+   --url https://github.com/IDEA-Research/GroundingDINO.git
+   ```
 
 ## Manuel de uso
 1. Ejecutar la aplicación:
