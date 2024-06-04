@@ -1,25 +1,31 @@
-from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QFileDialog, QLabel, QHBoxLayout, QComboBox, QMessageBox, QDialog, QDialogButtonBox
+from PyQt5.QtWidgets import QWidget, QVBoxLayout, QPushButton, QFileDialog, QLabel, QHBoxLayout, QComboBox, QMessageBox, QDialog, QDialogButtonBox, QInputDialog, QLineEdit, QGroupBox
 from PyQt5.QtGui import QFont
 from PyQt5.QtCore import Qt
 import os
 import shutil
 import random
 import yaml
+from ultralytics import YOLO
+
+
 
 class DatasetGenerationInterface(QWidget):
-    def __init__(self, parent=None, welcome_interface_callback=None):
+    def __init__(self, parent=None, welcome_interface=None):
         super().__init__(parent)
         self.setWindowTitle("Generación de Dataset")
         self.resize(400, 400)
 
         self.dataset_dir = None
-        self.welcome_interface_callback = welcome_interface_callback
+        self.welcome_interface = welcome_interface
 
-        layout = QVBoxLayout()
+        main_layout = QVBoxLayout()
 
-        # Botón para seleccionar dataset
+        # Sección de Selección de Dataset
+        dataset_group = QGroupBox("Seleccionar Dataset")
+        dataset_layout = QVBoxLayout()
+
         self.select_dataset_button = self.create_button("Seleccionar Dataset", "#3498db", "#2980b9", self.select_dataset)
-        layout.addWidget(self.select_dataset_button, alignment=Qt.AlignCenter)
+        dataset_layout.addWidget(self.select_dataset_button, alignment=Qt.AlignCenter)
 
         # Desplegables para seleccionar los porcentajes de división
         self.train_percentage_combo = self.create_percentage_combo()
@@ -39,22 +45,35 @@ class DatasetGenerationInterface(QWidget):
         percentage_layout.addWidget(self.valid_percentage_combo)
         percentage_layout.addWidget(QLabel("Test:"))
         percentage_layout.addWidget(self.test_percentage_combo)
-        layout.addLayout(percentage_layout)
+        dataset_layout.addLayout(percentage_layout)
 
-        # Botón para dividir dataset
         self.split_dataset_button = self.create_button("Dividir Dataset", "#3498db", "#2980b9", self.show_format_selection_popup)
         self.split_dataset_button.setEnabled(False)
-        layout.addWidget(self.split_dataset_button, alignment=Qt.AlignCenter)
+        dataset_layout.addWidget(self.split_dataset_button, alignment=Qt.AlignCenter)
+
+        dataset_group.setLayout(dataset_layout)
+        main_layout.addWidget(dataset_group)
+
+        # Sección de Selección de Modelo de Prueba
+        model_group = QGroupBox("Seleccionar Modelo de Prueba")
+        model_layout = QVBoxLayout()
+
+        self.model_selection_combo = QComboBox(self)
+        self.model_selection_combo.addItems(["YoloV8", "AlexNet", "Importa tu propio modelo"])  # Añade aquí los modelos que necesites
+        model_layout.addWidget(self.model_selection_combo, alignment=Qt.AlignCenter)
+
+        model_group.setLayout(model_layout)
+        main_layout.addWidget(model_group)
 
         # Botón para volver al menú principal
         self.back_button = self.create_button("Volver", "#e74c3c", "#c0392b", self.back_to_main_menu, small=True)
-        layout.addWidget(self.back_button, alignment=Qt.AlignCenter)
+        main_layout.addWidget(self.back_button, alignment=Qt.AlignCenter)
 
         # Etiqueta para mostrar el estado
         self.status_label = QLabel("", self)
-        layout.addWidget(self.status_label, alignment=Qt.AlignCenter)
+        main_layout.addWidget(self.status_label, alignment=Qt.AlignCenter)
 
-        self.setLayout(layout)
+        self.setLayout(main_layout)
 
     def create_button(self, text, color, hover_color, callback, small=False):
         button = QPushButton(text, self)
@@ -88,24 +107,6 @@ class DatasetGenerationInterface(QWidget):
             self.status_label.setText(f"Dataset seleccionado: {self.dataset_dir}")
             self.split_dataset_button.setEnabled(True)
 
-    '''
-    def copy_files(self, pairs, img_dest_dir, ann_dest_dir=None):
-        for img, ann_files in pairs:
-            shutil.copy(img, os.path.join(img_dest_dir, os.path.basename(img)))
-            print(f"Copied {img} to {img_dest_dir}")  # Mensaje de depuración
-            if ann_dest_dir:
-                for ann in ann_files:
-                    shutil.copy(ann, os.path.join(ann_dest_dir, os.path.basename(ann)))
-                    print(f"Copied {ann} to {ann_dest_dir}")  # Mensaje de depuración
-                    '''
-
-    def copy_files_2(self, pairs, images_dir, annotations_dir):
-        for image_path, annotation_paths in pairs:
-            print(f"Copying image: {image_path} to {images_dir}")  # Depuración
-            shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
-            for annotation_path in annotation_paths:
-                print(f"Copying annotation: {annotation_path} to {annotations_dir}")  # Depuración
-                shutil.copy(annotation_path, os.path.join(annotations_dir, os.path.basename(annotation_path)))
                 
 
     def show_format_selection_popup(self):
@@ -212,10 +213,22 @@ class DatasetGenerationInterface(QWidget):
             self.status_label.setText("Dataset dividido en carpetas 'train', 'valid' y 'test'.")
 
 
-
-
     def split_dataset_yolo(self):
         if self.dataset_dir:
+            # Mostrar el diálogo para introducir las etiquetas
+            labels_text, ok = QInputDialog.getText(self, "Introduce las etiquetas", "Etiquetas (separadas por comas):", QLineEdit.Normal)
+            
+            if not ok or not labels_text:
+                self.status_label.setText("Operación cancelada o no se introdujeron etiquetas.")
+                return
+            
+            # Procesar las etiquetas introducidas
+            labels = [label.strip() for label in labels_text.split(',')]
+            
+            if not labels:
+                self.status_label.setText("No se introdujeron etiquetas válidas.")
+                return
+
             # Obtener los porcentajes seleccionados
             train_percentage = int(self.train_percentage_combo.currentText().strip('%')) / 100
             valid_percentage = int(self.valid_percentage_combo.currentText().strip('%')) / 100
@@ -256,7 +269,6 @@ class DatasetGenerationInterface(QWidget):
 
             images = []
             annotations = {}
-            labels = set()
 
             # Recopilar archivos de imágenes
             for root, _, filenames in os.walk(images_dir):
@@ -273,11 +285,6 @@ class DatasetGenerationInterface(QWidget):
                         base_name = os.path.splitext(file)[0]
                         if base_name in annotations:
                             annotations[base_name].append(os.path.join(root, file))
-                            # Leer las etiquetas de los archivos de anotaciones
-                            with open(os.path.join(root, file), 'r') as f:
-                                for line in f:
-                                    label = line.strip().split()[0]
-                                    labels.add(label)
                         else:
                             annotations[base_name] = [os.path.join(root, file)]
 
@@ -311,15 +318,16 @@ class DatasetGenerationInterface(QWidget):
             copy_files(test_pairs, test_images_dir, test_annotations_dir)
 
             # Crear el archivo data.yaml
-            data = {
-                'train': os.path.abspath(train_images_dir),
-                'val': os.path.abspath(valid_images_dir),
-                'test': os.path.abspath(test_images_dir),
-                'names': list(labels)
+            data_yaml = {
+                'train': os.path.relpath(train_images_dir, split_dir),
+                'val': os.path.relpath(valid_images_dir, split_dir),
+                'test': os.path.relpath(test_images_dir, split_dir),
+                'nc': len(labels),
+                'names': labels
             }
 
             with open(os.path.join(split_dir, 'data.yaml'), 'w') as yaml_file:
-                yaml.dump(data, yaml_file, default_flow_style=False)
+                yaml.dump(data_yaml, yaml_file, default_flow_style=True)
 
             self.show_popup("Dataset dividido en carpetas 'train', 'valid' y 'test' con subcarpetas 'images' y 'annotations'.")
             self.status_label.setText("Dataset dividido en carpetas 'train', 'valid' y 'test' con subcarpetas 'images' y 'annotations'.")
@@ -497,4 +505,36 @@ class DatasetGenerationInterface(QWidget):
         self.welcome_interface = WelcomeInterface()
         self.welcome_interface.show()
         self.close()
+
+    def on_model_selection(self):
+        selected_model = self.model_selection_combo.currentText()
+        if selected_model == "YoloV8":
+            self.test_yolov8()
+
+    def test_yolov8(self):
+        # Implementación para probar YOLOv8 en una imagen del dataset
+        if not self.dataset_dir:
+            QMessageBox.warning(self, "Advertencia", "Por favor, selecciona un dataset primero.")
+            return
+
+        # Selecciona una imagen de prueba
+        images_dir = os.path.join(self.dataset_dir, 'images')
+        if not os.path.exists(images_dir):
+            QMessageBox.warning(self, "Advertencia", "No se encontró el directorio de imágenes en el dataset seleccionado.")
+            return
+
+        image_files = [f for f in os.listdir(images_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
+        if not image_files:
+            QMessageBox.warning(self, "Advertencia", "No se encontraron imágenes en el directorio de imágenes.")
+            return
+
+        test_image_path = os.path.join(images_dir, random.choice(image_files))
+
+        # Cargar el modelo YOLOv8 y realizar la prueba
+        model = YOLO('yolov8n.pt')  # Asegúrate de tener el modelo YOLOv8 preentrenado
+        results = model(test_image_path)
+
+        # Mostrar los resultados
+        results.show()
+        QMessageBox.information(self, "Resultados de YOLOv8", f"Resultados de la prueba en la imagen: {test_image_path}")
 
