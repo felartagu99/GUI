@@ -3,7 +3,7 @@
 # Aplicación de Cámara con Etiquetado de Imágenes
 
 ## Descripción
-Esta aplicación de cámara permite capturar imágenes desde una cámara conectada y etiquetarlas utilizando modelos de visión por computadora como GroundingDINO y SAM. Las imágenes etiquetadas pueden exportarse en varios formatos, incluidos Pascal-VOC, COCO y YOLO.
+Esta aplicación de cámara permite capturar imágenes desde una cámara conectada o importarlas desde un directorio y etiquetarlas utilizando modelos de visión por computadora como GroundingDINO y SAM. Las imágenes etiquetadas pueden exportarse en varios formatos, incluidos Pascal-VOC, COCO y YOLO. Por otro lado, permite hacer fine-tunning de diferentes modelos con los datasets generados por la aplicación.
 
 ## Requisitos
 - Python 3.7 o superior
@@ -52,13 +52,19 @@ Esta aplicación de cámara permite capturar imágenes desde una cámara conecta
      * Generación Dataset: En caso de disponer de un conjuunto de imágenes ya etiquedas puedes dirigirte directamente a la interfaz de generación y pruebas.
      * Comenzar: Botón que nos lleva a la interfaz de etiquetado.
      * Salir.
-2. Seleccionar la cámara desde el combo box.
-3. Seleccionar el modelo de etiquetado (GroundingDINO o GroundingDINO + SAM).
-4. Determinar los objetos que vamos a capturar mediante el boton "Agregar Etiquetas".
-4. Capturar imágenes y etiquetarlas:
-    - Presionar el botón "Captura" para tomar una foto y etiquetarla.
-    - Presionar el botón "Cargar Imágenes" para cargar imágenes desde el sistema de archivos y etiquetarlas.
-5. Seleccionar el formato de exportación (Pascal-VOC, COCO, YOLO, COCO with Segmentation) y exportar las imágenes etiquetadas.
+
+3. En la interfaz de captura:      
+     * Seleccionar la cámara desde el combo box.
+     * Seleccionar el modelo de etiquetado (GroundingDINO o GroundingDINO + SAM).
+     * Determinar los objetos que vamos a capturar mediante el boton "Agregar Etiquetas", esto solo en caso de necesitar más etiquetas aparte de las ya añadidas en la welcome interface.
+     * Presionar el botón "Captura" para tomar una foto y etiquetarla.
+     * Presionar el botón "Cargar Imágenes" para cargar imágenes desde el sistema de archivos y etiquetarlas.
+     * Seleccionar el formato de exportación (Pascal-VOC, COCO, YOLO, COCO with Segmentation) y exportar las imágenes etiquetadas.
+
+4. En la interfaz de generación de dataset y prueba:
+     * Seleccionar la carpeta.
+     * Aplicar los porcentajes de división para train, test, valid.
+     * Elegir el formato.
 
 ## Funcionalidades
 - **Captura de imágenes:** Permite capturar imágenes desde una cámara conectada.
