@@ -1,5 +1,6 @@
 import os
 import sys
+import webbrowser
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QLabel, QFileDialog, QSlider, QMessageBox,
                              QInputDialog, QHBoxLayout)
 from PyQt5.QtGui import QFont, QIcon
@@ -59,13 +60,19 @@ class WelcomeInterface(QWidget):
         self.dataset_generation_interface_button.clicked.connect(self.start_dataset_generation_interface)
         self.layout.addWidget(self.dataset_generation_interface_button)
 
+        # Botón para abrir el manual de uso
+        self.manual_button = QPushButton("Manual de Uso", self)
+        self.manual_button.setFont(QFont("Arial", 16, QFont.Bold))
+        self.manual_button.setStyleSheet("background-color: #3498db; color: white; padding: 10px; border-radius: 5px;")
+        self.manual_button.clicked.connect(self.open_manual)
+        self.layout.addWidget(self.manual_button)
+
         self.close_button = QPushButton("Salir", self)
         self.close_button.setFont(QFont("Arial", 16, QFont.Bold))
         self.close_button.setStyleSheet("background-color: #c0392b; color: white; padding: 10px; border-radius: 5px;")
         self.close_button.clicked.connect(self.close_application)
         self.layout.addWidget(self.close_button)
 
-        
         self.layout.addStretch(1)
 
         self.capture_dir = os.path.join(os.path.expanduser("~"), "Desktop", "Capturas")
@@ -112,3 +119,7 @@ class WelcomeInterface(QWidget):
         self.hide()
         self.main_window = CameraApp(self.capture_dir, self.labels)
         self.main_window.show()
+
+    def open_manual(self):
+        url = "https://github.com/felartagu99/GUI/blob/main/README.md"
+        webbrowser.open(url)
