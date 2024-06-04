@@ -50,6 +50,7 @@ Esta aplicación de cámara permite capturar imágenes desde una cámara conecta
      * Seleccionar Directorio: En este botón se establece el directorio donde se guardan los etiquetados.
      * Añadir etiquetas: Aquí se añaden los labels de los objetos que se van a capturar.
      * Generación Dataset: En caso de disponer de un conjuunto de imágenes ya etiquedas puedes dirigirte directamente a la interfaz de generación y pruebas.
+     * Comenzar: Botón que nos lleva a la interfaz de etiquetado.
      * Salir.
 2. Seleccionar la cámara desde el combo box.
 3. Seleccionar el modelo de etiquetado (GroundingDINO o GroundingDINO + SAM).
@@ -66,7 +67,9 @@ Esta aplicación de cámara permite capturar imágenes desde una cámara conecta
 - **Exportación de anotaciones:** Exporta las anotaciones en formatos Pascal-VOC, COCO, YOLO y COCO with Segmentation.
 
 ## Estructura del Código
+- **welcome_interface.py:** Pantalla de bienvenida.
 - **main.py:** Archivo principal que contiene la lógica de la aplicación y la interfaz gráfica.
+- **generation_interface.py:** Interfaz de generación de dataset y fine-tunning de modelos.
 - **funciones auxiliares:** Funciones para la creación de directorios, generación de nombres de archivos, exportación de anotaciones y visualización de resultados.
 
 ## Créditos
