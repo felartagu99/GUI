@@ -232,18 +232,11 @@ class DatasetGenerationInterface(QWidget):
 
     def split_dataset_yolo(self):
         if self.dataset_dir:
-            # Mostrar el diálogo para introducir las etiquetas
-            labels_text, ok = QInputDialog.getText(self, "Introduce las etiquetas", "Etiquetas (separadas por comas):", QLineEdit.Normal)
-            
-            if not ok or not labels_text:
-                self.status_label.setText("Operación cancelada o no se introdujeron etiquetas.")
-                return
-            
-            # Procesar las etiquetas introducidas
-            labels = [label.strip() for label in labels_text.split(',')]
-            
-            if not labels:
-                self.status_label.setText("No se introdujeron etiquetas válidas.")
+            # Verificar si existe el archivo data.yaml en el directorio del dataset
+            data_yaml_path = os.path.join(self.dataset_dir, 'data.yaml')
+            if not os.path.exists(data_yaml_path):
+                self.status_label.setText("No se encontró el archivo data.yaml en el directorio del dataset.")
+                QMessageBox.warning(self, "Advertencia", "No se encontró el archivo data.yaml en el directorio del dataset.")
                 return
 
             # Obtener los porcentajes seleccionados
@@ -267,11 +260,11 @@ class DatasetGenerationInterface(QWidget):
 
             # Subcarpetas para imágenes y anotaciones
             train_images_dir = os.path.join(train_dir, 'images')
-            train_annotations_dir = os.path.join(train_dir, 'annotations')
+            train_annotations_dir = os.path.join(train_dir, 'labels')
             valid_images_dir = os.path.join(valid_dir, 'images')
-            valid_annotations_dir = os.path.join(valid_dir, 'annotations')
+            valid_annotations_dir = os.path.join(valid_dir, 'labels')
             test_images_dir = os.path.join(test_dir, 'images')
-            test_annotations_dir = os.path.join(test_dir, 'annotations')
+            test_annotations_dir = os.path.join(test_dir, 'labels')
 
             os.makedirs(train_images_dir, exist_ok=True)
             os.makedirs(train_annotations_dir, exist_ok=True)
@@ -282,7 +275,7 @@ class DatasetGenerationInterface(QWidget):
 
             # Directorios de imágenes y anotaciones
             images_dir = os.path.join(self.dataset_dir, 'images')
-            annotations_dir = os.path.join(self.dataset_dir, 'annotations')
+            annotations_dir = os.path.join(self.dataset_dir, 'labels')
 
             images = []
             annotations = {}
@@ -334,20 +327,11 @@ class DatasetGenerationInterface(QWidget):
             copy_files(valid_pairs, valid_images_dir, valid_annotations_dir)
             copy_files(test_pairs, test_images_dir, test_annotations_dir)
 
-            # Crear el archivo data.yaml
-            data_yaml = {
-                'train': os.path.relpath(train_images_dir, split_dir),
-                'val': os.path.relpath(valid_images_dir, split_dir),
-                'test': os.path.relpath(test_images_dir, split_dir),
-                'nc': len(labels),
-                'names': labels
-            }
+            # Mover el archivo data.yaml a la carpeta split_dataset
+            shutil.copy(data_yaml_path, split_dir)
 
-            with open(os.path.join(split_dir, 'data.yaml'), 'w') as yaml_file:
-                yaml.dump(data_yaml, yaml_file, default_flow_style=True)
-
-            self.show_popup("Dataset dividido en carpetas 'train', 'valid' y 'test' con subcarpetas 'images' y 'annotations'.")
-            self.status_label.setText("Dataset dividido en carpetas 'train', 'valid' y 'test' con subcarpetas 'images' y 'annotations'.")
+            self.show_popup("Dataset dividido en carpetas 'train', 'valid' y 'test' con subcarpetas 'images' y 'labels'.")
+            self.status_label.setText("Dataset dividido en carpetas 'train', 'valid' y 'test' con subcarpetas 'images' y 'labels'.")
              
     def split_dataset_coco(self):
          if self.dataset_dir:
