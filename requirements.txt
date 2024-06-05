@@ -10,3 +10,7 @@ supervision
 pycocotools
 segment-anything
 groundingdino
+numpy
+pillow
+supervision
+ultralitycs

@@ -1,5 +1,5 @@
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QFileDialog, QLabel, QHBoxLayout, QComboBox, QMessageBox, QDialog, QDialogButtonBox, 
-                            QInputDialog, QLineEdit, QGroupBox, QMainWindow, QScrollArea)
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QFileDialog, QLabel, QHBoxLayout, QComboBox, QMessageBox, QDialog, QDialogButtonBox,
+                            QInputDialog, QLineEdit, QGroupBox, QMainWindow, QScrollArea, QProgressDialog, QPlainTextEdit, QApplication)
 from PyQt5.QtGui import QFont, QPixmap
 from PyQt5.QtCore import Qt
 import os
@@ -15,6 +15,8 @@ from torchvision import transforms
 
 
 
+
+
 class DatasetGenerationInterface(QWidget):
     def __init__(self, parent=None, welcome_interface=None):
         super().__init__(parent)
@@ -26,12 +28,13 @@ class DatasetGenerationInterface(QWidget):
 
         main_layout = QVBoxLayout()
 
+        # Botón para seleccionar el dataset, ubicado en la parte superior
+        self.select_dataset_button = self.create_button("Seleccionar Dataset", "#3498db", "#2980b9", self.select_dataset)
+        main_layout.addWidget(self.select_dataset_button, alignment=Qt.AlignCenter)
+
         # Sección de Selección de Dataset
         dataset_group = QGroupBox("Seleccionar Dataset")
         dataset_layout = QVBoxLayout()
-
-        self.select_dataset_button = self.create_button("Seleccionar Dataset", "#3498db", "#2980b9", self.select_dataset)
-        dataset_layout.addWidget(self.select_dataset_button, alignment=Qt.AlignCenter)
 
         # Desplegables para seleccionar los porcentajes de división
         self.train_percentage_combo = self.create_percentage_combo()
@@ -72,6 +75,10 @@ class DatasetGenerationInterface(QWidget):
         model_group.setLayout(model_layout)
         main_layout.addWidget(model_group)
 
+        # Botón para validar y entrenar
+        self.validate_button = self.create_button("Realizar Inferencia", "#27ae60", "#2ecc71", self.validate_and_train)
+        main_layout.addWidget(self.validate_button, alignment=Qt.AlignCenter)
+
         # Botón para volver al menú principal
         self.back_button = self.create_button("Volver", "#e74c3c", "#c0392b", self.back_to_main_menu, small=True)
         main_layout.addWidget(self.back_button, alignment=Qt.AlignCenter)
@@ -79,10 +86,6 @@ class DatasetGenerationInterface(QWidget):
         # Etiqueta para mostrar el estado
         self.status_label = QLabel("", self)
         main_layout.addWidget(self.status_label, alignment=Qt.AlignCenter)
-
-        # Botón para validar y entrenar
-        self.validate_button = self.create_button("Realizar Inferencia", "#27ae60", "#2ecc71", self.validate_and_train)
-        main_layout.addWidget(self.validate_button, alignment=Qt.AlignCenter)
 
         # Área para mostrar los resultados de la validación
         self.image_label = QLabel()
@@ -93,7 +96,6 @@ class DatasetGenerationInterface(QWidget):
         main_layout.addWidget(scroll_area)
 
         self.setLayout(main_layout)
-
 
     def create_button(self, text, color, hover_color, callback, small=False):
         button = QPushButton(text, self)
@@ -534,62 +536,30 @@ class DatasetGenerationInterface(QWidget):
 
     
 
-    def infer_yolov8(self):
-        if not self.dataset_dir:
-            QMessageBox.warning(self, "Advertencia", "No se ha seleccionado ningún dataset.")
-            return
+    def train(self):
+            # Cuadro de diálogo para seleccionar dispositivo
+        items = ("CPU", "GPU")
+        item, ok = QInputDialog.getItem(self, "Seleccionar Dispositivo", "Elija el dispositivo para entrenamiento:", items, 0, False)
+        if ok and item:
+            device = 'cpu' if item == "CPU" else 'cuda'
 
-        data_yaml_path = os.path.join(self.dataset_dir, 'data.yaml')
-        if not os.path.exists(data_yaml_path):
-            QMessageBox.warning(self, "Advertencia", "No se encontró el archivo data.yaml en el directorio del dataset.")
-            return
+            if not self.dataset_dir:
+                QMessageBox.warning(self, "Advertencia", "No se ha seleccionado ningún dataset.")
+                return
 
-        images_dir = os.path.join(self.dataset_dir, 'valid', 'images')
-        if not os.path.exists(images_dir):
-            QMessageBox.warning(self, "Advertencia", "No se encontró el directorio de imágenes en el conjunto de validación.")
-            return
+            data_yaml_path = os.path.join(self.dataset_dir, 'data.yaml')
+            if not os.path.exists(data_yaml_path):
+                QMessageBox.warning(self, "Advertencia", "No se encontró el archivo data.yaml en el directorio del dataset.")
+                return
 
-        image_files = [os.path.join(images_dir, f) for f in os.listdir(images_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
-        if not image_files:
-            QMessageBox.warning(self, "Advertencia", "No se encontraron imágenes en el directorio de validación de imágenes.")
-            return
-
-        # Crear un modelo YOLOv8 y forzar el uso de CPU
-        device = 'cpu'  # Forzar el uso de CPU
-        model = YOLO('yolov8n.pt').to(device)  # Puedes cambiar el modelo preentrenado según sea necesario
-
-        # Transformación para convertir PIL Image a tensor
-        transform = transforms.Compose([
-            transforms.ToTensor()
-        ])
-
-        # Realizar inferencia
-        results_dir = os.path.join(self.dataset_dir, 'results')
-        os.makedirs(results_dir, exist_ok=True)
-
-        for image_file in image_files:
-            img = Image.open(image_file).convert('RGB')
-            img_tensor = transform(img).unsqueeze(0).to(device)  # Convertir a tensor y agregar dimensión de batch
-            results = model(img_tensor)
-
-            # Convertir tensor a imagen para guardar con OpenCV
-            img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
-            
-            for result in results:
-                boxes = result.boxes.xyxy.cpu().numpy().astype(int)
-                scores = result.boxes.conf.cpu().numpy()
-                labels = result.boxes.cls.cpu().numpy().astype(int)
-
-                for box, score, label in zip(boxes, scores, labels):
-                    cv2.rectangle(img_cv, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
-                    cv2.putText(img_cv, f'{model.names[label]} {score:.2f}', (box[0], box[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-            
-            result_path = os.path.join(results_dir, os.path.basename(image_file))
-            cv2.imwrite(result_path, img_cv)
-
-        QMessageBox.information(self, "Información", "Inferencia completada.")
-
-
+            try:
+                # Entrenar el modelo con el dataset personalizado
+                model = YOLO('yolov8n.pt').to(device)  # Cargar el modelo preentrenado
+                model.train(data=data_yaml_path, epochs=10, lr0=0.01)  # Ajusta los parámetros según sea necesario
+            except Exception as e:
+                QMessageBox.warning(self, "Advertencia", f"Error durante el entrenamiento: {str(e)}")
+            else:
+                QMessageBox.information(self, "Información", "Entrenamiento completado.")
 
 
         
@@ -597,5 +567,5 @@ class DatasetGenerationInterface(QWidget):
     def validate_and_train(self):
         selected_model = self.model_selection_combo.currentText()
         if selected_model == "YoloV8":
-            self.infer_yolov8()
+            self.train()
         # Añadir lógica para otros modelos si es necesario
