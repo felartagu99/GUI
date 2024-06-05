@@ -25,6 +25,7 @@ class DatasetGenerationInterface(QWidget):
 
         self.dataset_dir = None
         self.welcome_interface = welcome_interface
+        self.custom_model_path = None
 
         main_layout = QVBoxLayout()
 
@@ -79,9 +80,14 @@ class DatasetGenerationInterface(QWidget):
         model_layout = QVBoxLayout()
 
         self.model_selection_combo = QComboBox(self)
-        self.model_selection_combo.addItems(["YoloV8", "AlexNet", "Importa tu propio modelo"])  # Añade aquí los modelos que necesites
-        self.model_selection_combo.currentIndexChanged.connect(self.on_model_selection)
-        model_layout.addWidget(self.model_selection_combo, alignment=Qt.AlignCenter)
+        self.model_selection_combo.addItems(["YoloV8", "AlexNet", "Importa tu propio modelo"])
+        self.model_selection_combo.currentIndexChanged.connect(self.model_selection_changed)
+        main_layout.addWidget(self.model_selection_combo, alignment=Qt.AlignCenter)
+
+
+        self.import_model_button = self.create_button("Cargar Modelo", "#3498db", "#2980b9", self.load_custom_model)
+        self.import_model_button.setVisible(False)
+        model_layout.addWidget(self.import_model_button, alignment=Qt.AlignCenter)
 
         model_group.setLayout(model_layout)
         main_layout.addWidget(model_group)
@@ -164,8 +170,7 @@ class DatasetGenerationInterface(QWidget):
         self.train_label.setText(f"Train: {self.train_slider.value()}%")
         self.valid_label.setText(f"Valid: {self.valid_slider.value()}%")
         self.test_label.setText(f"Test: {self.test_slider.value()}%")
-        
-        
+ 
     def adjust_slider(self, slider1, slider2, difference):
         if slider1.value() - difference >= 0:
             slider1.setValue(slider1.value() - difference)
@@ -292,24 +297,18 @@ class DatasetGenerationInterface(QWidget):
 
     def split_dataset_yolo(self):
         if self.dataset_dir:
-            # Mostrar el diálogo para introducir las etiquetas
-            labels_text, ok = QInputDialog.getText(self, "Introduce las etiquetas", "Etiquetas (separadas por comas):", QLineEdit.Normal)
-            
-            if not ok or not labels_text:
-                self.status_label.setText("Operación cancelada o no se introdujeron etiquetas.")
-                return
-            
-            # Procesar las etiquetas introducidas
-            labels = [label.strip() for label in labels_text.split(',')]
-            
-            if not labels:
-                self.status_label.setText("No se introdujeron etiquetas válidas.")
+            # Verificar si existe el archivo data.yaml en el directorio del dataset
+            data_yaml_path = os.path.join(self.dataset_dir, 'data.yaml')
+            if not os.path.exists(data_yaml_path):
+                self.status_label.setText("No se encontró el archivo data.yaml en el directorio del dataset.")
+                QMessageBox.warning(self, "Advertencia", "No se encontró el archivo data.yaml en el directorio del dataset.")
                 return
 
             # Obtener los porcentajes seleccionados
-            train_percentage = int(self.train_percentage_combo.currentText().strip('%')) / 100
-            valid_percentage = int(self.valid_percentage_combo.currentText().strip('%')) / 100
-            test_percentage = int(self.test_percentage_combo.currentText().strip('%')) / 100
+            train_percentage = int(self.train_slider.value()) / 100
+            valid_percentage = int(self.valid_slider.value()) / 100
+            test_percentage = int(self.test_slider.value()) / 100
+
 
             if train_percentage + valid_percentage + test_percentage != 1.0:
                 self.status_label.setText("Los porcentajes deben sumar 100%.")
@@ -327,11 +326,11 @@ class DatasetGenerationInterface(QWidget):
 
             # Subcarpetas para imágenes y anotaciones
             train_images_dir = os.path.join(train_dir, 'images')
-            train_annotations_dir = os.path.join(train_dir, 'annotations')
+            train_annotations_dir = os.path.join(train_dir, 'labels')
             valid_images_dir = os.path.join(valid_dir, 'images')
-            valid_annotations_dir = os.path.join(valid_dir, 'annotations')
+            valid_annotations_dir = os.path.join(valid_dir, 'labels')
             test_images_dir = os.path.join(test_dir, 'images')
-            test_annotations_dir = os.path.join(test_dir, 'annotations')
+            test_annotations_dir = os.path.join(test_dir, 'labels')
 
             os.makedirs(train_images_dir, exist_ok=True)
             os.makedirs(train_annotations_dir, exist_ok=True)
@@ -342,7 +341,7 @@ class DatasetGenerationInterface(QWidget):
 
             # Directorios de imágenes y anotaciones
             images_dir = os.path.join(self.dataset_dir, 'images')
-            annotations_dir = os.path.join(self.dataset_dir, 'annotations')
+            annotations_dir = os.path.join(self.dataset_dir, 'labels')
 
             images = []
             annotations = {}
@@ -394,21 +393,12 @@ class DatasetGenerationInterface(QWidget):
             copy_files(valid_pairs, valid_images_dir, valid_annotations_dir)
             copy_files(test_pairs, test_images_dir, test_annotations_dir)
 
-            # Crear el archivo data.yaml
-            data_yaml = {
-                'train': os.path.relpath(train_images_dir, split_dir),
-                'val': os.path.relpath(valid_images_dir, split_dir),
-                'test': os.path.relpath(test_images_dir, split_dir),
-                'nc': len(labels),
-                'names': labels
-            }
+            # Mover el archivo data.yaml a la carpeta split_dataset
+            shutil.copy(data_yaml_path, split_dir)
 
-            with open(os.path.join(split_dir, 'data.yaml'), 'w') as yaml_file:
-                yaml.dump(data_yaml, yaml_file, default_flow_style=True)
-
-            self.show_popup("Dataset dividido en carpetas 'train', 'valid' y 'test' con subcarpetas 'images' y 'annotations'.")
-            self.status_label.setText("Dataset dividido en carpetas 'train', 'valid' y 'test' con subcarpetas 'images' y 'annotations'.")
-             
+            self.show_popup("Dataset dividido en carpetas 'train', 'valid' y 'test' con subcarpetas 'images' y 'labels'.")
+            self.status_label.setText("Dataset dividido en carpetas 'train', 'valid' y 'test' con subcarpetas 'images' y 'labels'.")  
+              
     def split_dataset_coco(self):
          if self.dataset_dir:
             # Obtener los porcentajes seleccionados
@@ -565,6 +555,19 @@ class DatasetGenerationInterface(QWidget):
             self.show_popup("Dataset dividido en carpetas 'train', 'valid' y 'test'.")
             self.status_label.setText("Dataset dividido en carpetas 'train', 'valid' y 'test'.")   
 
+    def model_selection_changed(self, index):
+        if self.model_selection_combo.currentText() == "Importa tu propio modelo":
+            self.load_custom_model()
+
+    def load_custom_model(self):
+        options = QFileDialog.Options()
+        options |= QFileDialog.DontUseNativeDialog
+        file_name, _ = QFileDialog.getOpenFileName(self, "Selecciona tu modelo", "", "Model Files (*.pt *.pth);;All Files (*)", options=options)
+        if file_name:
+            self.custom_model_path = file_name
+            self.custom_model_label.setText(f"Modelo seleccionado: {self.custom_model_path}")
+            QMessageBox.information(self, "Modelo Seleccionado", f"Has seleccionado el modelo: {self.custom_model_path}")
+                        
     def show_popup(self, message):
         msg = QMessageBox()
         msg.setIcon(QMessageBox.Information)
@@ -578,6 +581,18 @@ class DatasetGenerationInterface(QWidget):
         self.welcome_interface = WelcomeInterface()
         self.welcome_interface.show()
         self.close()
+
+    def validate_and_train(self):
+        selected_model = self.model_selection_combo.currentText()
+        if selected_model == "Importa tu propio modelo":
+            if self.custom_model_path:
+                model_path = self.custom_model_path
+                self.status_label.setText(f"Usando modelo personalizado: {model_path}")
+            else:
+                QMessageBox.warning(self, "Advertencia", "Por favor, carga un modelo personalizado.")
+                return
+        else:
+            self.status_label.setText(f"Usando modelo predefinido: {selected_model}")
 
     def on_model_selection(self):
         selected_model = self.model_selection_combo.currentText()

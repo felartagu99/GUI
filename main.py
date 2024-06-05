@@ -235,24 +235,32 @@ def export_to_yolo(image_path, boxes, phrases, output_dir, labels):
     create_dir(image_dir)
     create_dir(labels_dir)
 
+    # Obtener el ID para los archivos de anotación
+    txt_id = get_next_id(labels_dir, "annotated_image", ".txt")
+    label_file_name = f"annotated_image_{txt_id}.txt"
+    label_path = os.path.join(labels_dir, label_file_name)
+
+    # Renombrar y copiar la imagen
+    image_extension = os.path.splitext(image_path)[1]
+    new_image_name = f"annotated_image_{txt_id}{image_extension}"
+    new_image_path = os.path.join(image_dir, new_image_name)
+    shutil.copy(image_path, new_image_path)
+    print(f"Copied and renamed image to {new_image_path}")
+
+    '''
     # Crear archivo classes.txt
     classes_path = os.path.join(output_dir, "classes.txt")
     with open(classes_path, "w") as f:
         for label in labels:
             f.write(f"{label}\n")
     print(f"Saved classes to {classes_path}")
-
-
+    '''
     # Guardar etiquetas en formato YOLO
-    txt_id = get_next_id(output_dir, "annotated_image", ".txt")
-    label_file_name = f"annotated_image_{txt_id}.txt"
-    label_path = os.path.join(labels_dir, label_file_name)
-
     yolo_annotations = []
 
     for box, phrase in zip(boxes, phrases):
         class_id = labels.index(phrase) if phrase in labels else -1
-        if class_id != -1:  
+        if class_id != -1:
             x_center, y_center, box_width, box_height = box
             x_center = max(0, min(x_center, 1))  # Asegurar que esté en el rango [0, 1]
             y_center = max(0, min(y_center, 1))
@@ -264,6 +272,16 @@ def export_to_yolo(image_path, boxes, phrases, output_dir, labels):
         f.write("\n".join(yolo_annotations))
     print(f"Saved YOLO annotations to {label_path}")
 
+    # Crear archivo data.yaml
+    yaml_path = os.path.join(output_dir, "data.yaml")
+    with open(yaml_path, "w") as f:
+        f.write(f"train: ../train/images\n")
+        f.write(f"val: ../valid/images\n")
+        f.write(f"test: ../test/images\n\n")
+        f.write(f"nc: {len(labels)}\n")
+        f.write(f"names: {labels}\n")
+    print(f"Saved data.yaml to {yaml_path}")
+    
 def show_mask(mask, image, random_color=True):
     if random_color:
         color = np.concatenate([np.random.random(3), np.array([0.8])], axis=0)
@@ -534,7 +552,7 @@ class CameraApp(QWidget):
                 #print("Failed to read frame from camera!")
                 self.camera_label.setText("Error: Failed to read frame")
         else:
-            print("Camera not available!")
+            #print("Camera not available!")
             self.camera_label.setText("Cámara no disponible")
 
     def upload_and_label_image(self):
