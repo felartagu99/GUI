@@ -6,7 +6,12 @@ import os
 import shutil
 import random
 import yaml
+import torch
+import numpy as np
+import cv2
 from ultralytics import YOLO
+from PIL import Image
+from torchvision import transforms
 
 
 
@@ -76,7 +81,7 @@ class DatasetGenerationInterface(QWidget):
         main_layout.addWidget(self.status_label, alignment=Qt.AlignCenter)
 
         # Botón para validar y entrenar
-        self.validate_button = self.create_button("Validar y Entrenar", "#27ae60", "#2ecc71", self.validate_and_train)
+        self.validate_button = self.create_button("Realizar Inferencia", "#27ae60", "#2ecc71", self.validate_and_train)
         main_layout.addWidget(self.validate_button, alignment=Qt.AlignCenter)
 
         # Área para mostrar los resultados de la validación
@@ -515,63 +520,82 @@ class DatasetGenerationInterface(QWidget):
     def on_model_selection(self):
         selected_model = self.model_selection_combo.currentText()
         if selected_model == "YoloV8":
-            self.test_yolov8()
+            self.select_dataset_for_yolov8()
+    
+    def select_dataset_for_yolov8(self):
+        dataset_dir = QFileDialog.getExistingDirectory(self, "Seleccionar directorio del dataset")
 
-    def train_yolov8(self):
-        if not self.dataset_dir:
-            QMessageBox.warning(self, "Advertencia", "Por favor, selecciona un dataset primero.")
-            return
-
-        # Aquí suponemos que hay subdirectorios 'train', 'val' y 'test' dentro del directorio del dataset
-        
-        #Aqui hay que decir que pille el dadta.yml para pasarselo a la funcion de model.train.
-        train_dir = os.path.join(self.dataset_dir, 'train')
-        val_dir = os.path.join(self.dataset_dir, 'valid')
-        val_test = os.path.join(self.dataset_dir, 'test')
-        
-        if not os.path.exists(train_dir) or not os.path.exists(val_dir):
-            QMessageBox.warning(self, "Advertencia", "El dataset debe contener subdirectorios 'train', 'valid' y 'test'.")
-            return
-
-        try:
-            model = YOLO('yolov8n.pt')
-            model.train(data=self.dataset_dir, epochs=50, imgsz=640, batch=16)  # Ajusta los parámetros según sea necesario
-            QMessageBox.information(self, "Entrenamiento Completado", "El modelo YOLOv8 ha sido entrenado con éxito.")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Ocurrió un error durante el entrenamiento de YOLOv8: {str(e)}")
-   
-    def validate_yolov8(self):
-        validation_dir = QFileDialog.getExistingDirectory(self, "Seleccionar directorio de validación")
-
-        if not validation_dir:
+        if not dataset_dir:
             QMessageBox.warning(self, "Advertencia", "No se seleccionó ningún directorio.")
             return
 
-        images_dir = os.path.join(validation_dir, 'images')
+        self.dataset_dir = dataset_dir
+        self.validate_and_train()
+
+    
+
+    def infer_yolov8(self):
+        if not self.dataset_dir:
+            QMessageBox.warning(self, "Advertencia", "No se ha seleccionado ningún dataset.")
+            return
+
+        data_yaml_path = os.path.join(self.dataset_dir, 'data.yaml')
+        if not os.path.exists(data_yaml_path):
+            QMessageBox.warning(self, "Advertencia", "No se encontró el archivo data.yaml en el directorio del dataset.")
+            return
+
+        images_dir = os.path.join(self.dataset_dir, 'valid', 'images')
         if not os.path.exists(images_dir):
-            QMessageBox.warning(self, "Advertencia", "No se encontró el directorio de imágenes en el dataset seleccionado.")
+            QMessageBox.warning(self, "Advertencia", "No se encontró el directorio de imágenes en el conjunto de validación.")
             return
 
-        image_files = [f for f in os.listdir(images_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
+        image_files = [os.path.join(images_dir, f) for f in os.listdir(images_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
         if not image_files:
-            QMessageBox.warning(self, "Advertencia", "No se encontraron imágenes en el directorio de imágenes.")
+            QMessageBox.warning(self, "Advertencia", "No se encontraron imágenes en el directorio de validación de imágenes.")
             return
 
-        try:
-            model = YOLO('yolov8n.pt')
-            total_images = len(image_files)
-            processed_images = 0
-            for image_file in image_files:
-                image_path = os.path.join(images_dir, image_file)
-                results = model(image_path)
-                results.save(save_dir='results')  # Guarda los resultados en el directorio 'results'
-                processed_images += 1
+        # Crear un modelo YOLOv8 y forzar el uso de CPU
+        device = 'cpu'  # Forzar el uso de CPU
+        model = YOLO('yolov8n.pt').to(device)  # Puedes cambiar el modelo preentrenado según sea necesario
 
-            QMessageBox.information(self, "Validación de YOLOv8", f"Se validaron {processed_images} de {total_images} imágenes correctamente.")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Ocurrió un error durante la validación de YOLOv8: {str(e)}")
+        # Transformación para convertir PIL Image a tensor
+        transform = transforms.Compose([
+            transforms.ToTensor()
+        ])
+
+        # Realizar inferencia
+        results_dir = os.path.join(self.dataset_dir, 'results')
+        os.makedirs(results_dir, exist_ok=True)
+
+        for image_file in image_files:
+            img = Image.open(image_file).convert('RGB')
+            img_tensor = transform(img).unsqueeze(0).to(device)  # Convertir a tensor y agregar dimensión de batch
+            results = model(img_tensor)
+
+            # Convertir tensor a imagen para guardar con OpenCV
+            img_cv = cv2.cvtColor(np.array(img), cv2.COLOR_RGB2BGR)
             
+            for result in results:
+                boxes = result.boxes.xyxy.cpu().numpy().astype(int)
+                scores = result.boxes.conf.cpu().numpy()
+                labels = result.boxes.cls.cpu().numpy().astype(int)
+
+                for box, score, label in zip(boxes, scores, labels):
+                    cv2.rectangle(img_cv, (box[0], box[1]), (box[2], box[3]), (0, 255, 0), 2)
+                    cv2.putText(img_cv, f'{model.names[label]} {score:.2f}', (box[0], box[1] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
+            
+            result_path = os.path.join(results_dir, os.path.basename(image_file))
+            cv2.imwrite(result_path, img_cv)
+
+        QMessageBox.information(self, "Información", "Inferencia completada.")
+
+
+
+
+        
 
     def validate_and_train(self):
-        self.validate_yolov8()
-        self.train_yolov8()
+        selected_model = self.model_selection_combo.currentText()
+        if selected_model == "YoloV8":
+            self.infer_yolov8()
+        # Añadir lógica para otros modelos si es necesario
