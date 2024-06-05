@@ -1,12 +1,19 @@
-from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QFileDialog, QLabel, QHBoxLayout, QComboBox, QMessageBox, QDialog, QDialogButtonBox, 
-                            QInputDialog, QLineEdit, QGroupBox, QMainWindow, QScrollArea)
-from PyQt5.QtGui import QFont, QPixmap
+from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QFileDialog, QLabel, QHBoxLayout, QComboBox, QMessageBox, QDialog, QDialogButtonBox,
+                            QInputDialog, QLineEdit, QGroupBox, QSlider, QScrollArea)
+from PyQt5.QtGui import QFont
 from PyQt5.QtCore import Qt
 import os
 import shutil
 import random
 import yaml
+import torch
+import numpy as np
+import cv2
 from ultralytics import YOLO
+from PIL import Image
+from torchvision import transforms
+
+
 
 
 
@@ -21,35 +28,47 @@ class DatasetGenerationInterface(QWidget):
 
         main_layout = QVBoxLayout()
 
+        # Botón para seleccionar el dataset, ubicado en la parte superior
+        self.select_dataset_button = self.create_button("Seleccionar Carpeta", "#3498db", "#2980b9", self.select_dataset)
+        main_layout.addWidget(self.select_dataset_button, alignment=Qt.AlignCenter)
+
         # Sección de Selección de Dataset
         dataset_group = QGroupBox("Seleccionar Dataset")
         dataset_layout = QVBoxLayout()
 
-        self.select_dataset_button = self.create_button("Seleccionar Dataset", "#3498db", "#2980b9", self.select_dataset)
-        dataset_layout.addWidget(self.select_dataset_button, alignment=Qt.AlignCenter)
+        # Sliders para seleccionar los porcentajes de división
+        self.train_slider = self.create_slider()
+        self.valid_slider = self.create_slider()
+        self.test_slider = self.create_slider()
 
-        # Desplegables para seleccionar los porcentajes de división
-        self.train_percentage_combo = self.create_percentage_combo()
-        self.valid_percentage_combo = self.create_percentage_combo()
-        self.test_percentage_combo = self.create_percentage_combo()
+        # Etiquetas para mostrar los valores de los sliders
+        self.train_label = QLabel("Train: 70%", self)
+        self.valid_label = QLabel("Valid: 15%", self)
+        self.test_label = QLabel("Test: 15%", self)
 
-        # Establecer valores iniciales
-        self.train_percentage_combo.setCurrentIndex(70)
-        self.valid_percentage_combo.setCurrentIndex(15)
-        self.test_percentage_combo.setCurrentIndex(15)
-
-        # Añadir desplegables al layout
-        percentage_layout = QHBoxLayout()
-        percentage_layout.addWidget(QLabel("Train:"))
-        percentage_layout.addWidget(self.train_percentage_combo)
-        percentage_layout.addWidget(QLabel("Valid:"))
-        percentage_layout.addWidget(self.valid_percentage_combo)
-        percentage_layout.addWidget(QLabel("Test:"))
-        percentage_layout.addWidget(self.test_percentage_combo)
+        # Añadir sliders y etiquetas al layout
+        percentage_layout = QVBoxLayout()
+        
+        train_layout = QHBoxLayout()
+        train_layout.addWidget(self.train_label)
+        train_layout.addWidget(self.train_slider)
+        
+        valid_layout = QHBoxLayout()
+        valid_layout.addWidget(self.valid_label)
+        valid_layout.addWidget(self.valid_slider)
+        
+        test_layout = QHBoxLayout()
+        test_layout.addWidget(self.test_label)
+        test_layout.addWidget(self.test_slider)
+        
+        percentage_layout.addLayout(train_layout)
+        percentage_layout.addLayout(valid_layout)
+        percentage_layout.addLayout(test_layout)
+        
         dataset_layout.addLayout(percentage_layout)
 
         self.split_dataset_button = self.create_button("Dividir Dataset", "#3498db", "#2980b9", self.show_format_selection_popup)
-        self.split_dataset_button.setEnabled(False)
+        self.split_dataset_button.setEnabled(True)
         dataset_layout.addWidget(self.split_dataset_button, alignment=Qt.AlignCenter)
 
         dataset_group.setLayout(dataset_layout)
@@ -67,6 +86,10 @@ class DatasetGenerationInterface(QWidget):
         model_group.setLayout(model_layout)
         main_layout.addWidget(model_group)
 
+        # Botón para validar y entrenar
+        self.validate_button = self.create_button("Realizar Inferencia", "#27ae60", "#2ecc71", self.validate_and_train)
+        main_layout.addWidget(self.validate_button, alignment=Qt.AlignCenter)
+
         # Botón para volver al menú principal
         self.back_button = self.create_button("Volver", "#e74c3c", "#c0392b", self.back_to_main_menu, small=True)
         main_layout.addWidget(self.back_button, alignment=Qt.AlignCenter)
@@ -74,10 +97,6 @@ class DatasetGenerationInterface(QWidget):
         # Etiqueta para mostrar el estado
         self.status_label = QLabel("", self)
         main_layout.addWidget(self.status_label, alignment=Qt.AlignCenter)
-
-        # Botón para validar y entrenar
-        self.validate_button = self.create_button("Validar y Entrenar", "#27ae60", "#2ecc71", self.validate_and_train)
-        main_layout.addWidget(self.validate_button, alignment=Qt.AlignCenter)
 
         # Área para mostrar los resultados de la validación
         self.image_label = QLabel()
@@ -89,7 +108,17 @@ class DatasetGenerationInterface(QWidget):
 
         self.setLayout(main_layout)
 
+        # Conectar sliders para actualizar los valores
+        self.train_slider.valueChanged.connect(self.update_sliders)
+        self.valid_slider.valueChanged.connect(self.update_sliders)
+        self.test_slider.valueChanged.connect(self.update_sliders)
 
+        # Inicializar los valores de los sliders
+        self.train_slider.setValue(70)
+        self.valid_slider.setValue(15)
+        self.test_slider.setValue(15)
+        self.update_sliders()
+        
     def create_button(self, text, color, hover_color, callback, small=False):
         button = QPushButton(text, self)
         font_size = 10 if small else 14
@@ -109,6 +138,44 @@ class DatasetGenerationInterface(QWidget):
         popup.accept()
         func()
 
+    def create_slider(self):
+        slider = QSlider(Qt.Horizontal, self)
+        slider.setRange(0, 100)
+        slider.setSingleStep(1)
+        slider.setTickInterval(10)
+        slider.setTickPosition(QSlider.TicksBelow)
+        return slider
+
+    def update_sliders(self):
+        total = self.train_slider.value() + self.valid_slider.value() + self.test_slider.value()
+
+        # Adjust the sliders to make sure they sum up to 100%
+        if total != 100:
+            if self.sender() == self.train_slider:
+                difference = total - 100
+                self.adjust_slider(self.valid_slider, self.test_slider, difference)
+            elif self.sender() == self.valid_slider:
+                difference = total - 100
+                self.adjust_slider(self.train_slider, self.test_slider, difference)
+            elif self.sender() == self.test_slider:
+                difference = total - 100
+                self.adjust_slider(self.train_slider, self.valid_slider, difference)
+
+        self.train_label.setText(f"Train: {self.train_slider.value()}%")
+        self.valid_label.setText(f"Valid: {self.valid_slider.value()}%")
+        self.test_label.setText(f"Test: {self.test_slider.value()}%")
+        
+        
+    def adjust_slider(self, slider1, slider2, difference):
+        if slider1.value() - difference >= 0:
+            slider1.setValue(slider1.value() - difference)
+        elif slider2.value() - difference >= 0:
+            slider2.setValue(slider2.value() - difference)
+        else:
+            remainder = difference - slider1.value()
+            slider1.setValue(0)
+            slider2.setValue(slider2.value() - remainder)
+            
     def select_dataset(self):
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
@@ -148,9 +215,9 @@ class DatasetGenerationInterface(QWidget):
     def split_dataset_pascal_voc(self):
         if self.dataset_dir:
             # Obtener los porcentajes seleccionados
-            train_percentage = int(self.train_percentage_combo.currentText().strip('%')) / 100
-            valid_percentage = int(self.valid_percentage_combo.currentText().strip('%')) / 100
-            test_percentage = int(self.test_percentage_combo.currentText().strip('%')) / 100
+            train_percentage = int(self.train_slider.value()) / 100
+            valid_percentage = int(self.valid_slider.value()) / 100
+            test_percentage = int(self.test_slider.value()) / 100
 
             if train_percentage + valid_percentage + test_percentage != 1.0:
                 self.status_label.setText("Los porcentajes deben sumar 100%.")
@@ -515,63 +582,46 @@ class DatasetGenerationInterface(QWidget):
     def on_model_selection(self):
         selected_model = self.model_selection_combo.currentText()
         if selected_model == "YoloV8":
-            self.test_yolov8()
+            self.select_dataset_for_yolov8()
+    
+    def select_dataset_for_yolov8(self):
+        dataset_dir = QFileDialog.getExistingDirectory(self, "Seleccionar directorio del dataset")
 
-    def train_yolov8(self):
-        if not self.dataset_dir:
-            QMessageBox.warning(self, "Advertencia", "Por favor, selecciona un dataset primero.")
-            return
-
-        # Aquí suponemos que hay subdirectorios 'train', 'val' y 'test' dentro del directorio del dataset
-        
-        #Aqui hay que decir que pille el dadta.yml para pasarselo a la funcion de model.train.
-        train_dir = os.path.join(self.dataset_dir, 'train')
-        val_dir = os.path.join(self.dataset_dir, 'valid')
-        val_test = os.path.join(self.dataset_dir, 'test')
-        
-        if not os.path.exists(train_dir) or not os.path.exists(val_dir):
-            QMessageBox.warning(self, "Advertencia", "El dataset debe contener subdirectorios 'train', 'valid' y 'test'.")
-            return
-
-        try:
-            model = YOLO('yolov8n.pt')
-            model.train(data=self.dataset_dir, epochs=50, imgsz=640, batch=16)  # Ajusta los parámetros según sea necesario
-            QMessageBox.information(self, "Entrenamiento Completado", "El modelo YOLOv8 ha sido entrenado con éxito.")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Ocurrió un error durante el entrenamiento de YOLOv8: {str(e)}")
-   
-    def validate_yolov8(self):
-        validation_dir = QFileDialog.getExistingDirectory(self, "Seleccionar directorio de validación")
-
-        if not validation_dir:
+        if not dataset_dir:
             QMessageBox.warning(self, "Advertencia", "No se seleccionó ningún directorio.")
             return
 
-        images_dir = os.path.join(validation_dir, 'images')
-        if not os.path.exists(images_dir):
-            QMessageBox.warning(self, "Advertencia", "No se encontró el directorio de imágenes en el dataset seleccionado.")
-            return
+        self.dataset_dir = dataset_dir
+        self.validate_and_train()
 
-        image_files = [f for f in os.listdir(images_dir) if f.lower().endswith(('.png', '.jpg', '.jpeg', '.bmp'))]
-        if not image_files:
-            QMessageBox.warning(self, "Advertencia", "No se encontraron imágenes en el directorio de imágenes.")
-            return
+    def train(self):
+            # Cuadro de diálogo para seleccionar dispositivo
+        items = ("CPU", "GPU")
+        item, ok = QInputDialog.getItem(self, "Seleccionar Dispositivo", "Elija el dispositivo para entrenamiento:", items, 0, False)
+        if ok and item:
+            device = 'cpu' if item == "CPU" else 'cuda'
 
-        try:
-            model = YOLO('yolov8n.pt')
-            total_images = len(image_files)
-            processed_images = 0
-            for image_file in image_files:
-                image_path = os.path.join(images_dir, image_file)
-                results = model(image_path)
-                results.save(save_dir='results')  # Guarda los resultados en el directorio 'results'
-                processed_images += 1
+            if not self.dataset_dir:
+                QMessageBox.warning(self, "Advertencia", "No se ha seleccionado ningún dataset.")
+                return
 
-            QMessageBox.information(self, "Validación de YOLOv8", f"Se validaron {processed_images} de {total_images} imágenes correctamente.")
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Ocurrió un error durante la validación de YOLOv8: {str(e)}")
-            
+            data_yaml_path = os.path.join(self.dataset_dir, 'data.yaml')
+            if not os.path.exists(data_yaml_path):
+                QMessageBox.warning(self, "Advertencia", "No se encontró el archivo data.yaml en el directorio del dataset.")
+                return
+
+            try:
+                # Entrenar el modelo con el dataset personalizado
+                model = YOLO('yolov8n.pt').to(device)  # Cargar el modelo preentrenado
+                model.train(data=data_yaml_path, epochs=10, lr0=0.01)  # Ajusta los parámetros según sea necesario
+            except Exception as e:
+                QMessageBox.warning(self, "Advertencia", f"Error durante el entrenamiento: {str(e)}")
+            else:
+                QMessageBox.information(self, "Información", "Entrenamiento completado.")
+   
 
     def validate_and_train(self):
-        self.validate_yolov8()
-        self.train_yolov8()
+        selected_model = self.model_selection_combo.currentText()
+        if selected_model == "YoloV8":
+            self.train()
+        # Añadir lógica para otros modelos si es necesario
