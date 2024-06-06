@@ -48,7 +48,7 @@ class WelcomeInterface(QWidget):
         # Espacio entre slider y botón de comenzar
         self.layout.addStretch(1)
 
-        self.start_button = QPushButton("Comenzar", self)
+        self.start_button = QPushButton("Comenzar con el etiquetado", self)
         self.start_button.setFont(QFont("Arial", 16, QFont.Bold))
         self.start_button.setStyleSheet("background-color: #4CAF50; color: white; padding: 10px; border-radius: 5px;")
         self.start_button.clicked.connect(self.start_main_window)

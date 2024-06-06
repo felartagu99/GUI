@@ -7,11 +7,15 @@ import shutil
 import random
 import yaml
 import torch
+import torch.nn as nn
+import torch.optim as optim
 import numpy as np
 import cv2
 from ultralytics import YOLO
 from PIL import Image
-from torchvision import transforms
+from torchvision import (transforms, models, datasets)
+from torch.utils.data import DataLoader
+from torchvision.datasets import VOCDetection
 
 
 
@@ -29,11 +33,11 @@ class DatasetGenerationInterface(QWidget):
         main_layout = QVBoxLayout()
 
         # Botón para seleccionar el dataset, ubicado en la parte superior
-        self.select_dataset_button = self.create_button("Seleccionar Carpeta", "#3498db", "#2980b9", self.select_dataset)
+        self.select_dataset_button = self.create_button("Seleccionar Carpeta", "#000000", "#333333", "#333333", "#555555", self.select_dataset)
         main_layout.addWidget(self.select_dataset_button, alignment=Qt.AlignCenter)
 
         # Sección de Selección de Dataset
-        dataset_group = QGroupBox("Seleccionar Dataset")
+        dataset_group = QGroupBox("Seleccionar Porcentajes")
         dataset_layout = QVBoxLayout()
 
         # Sliders para seleccionar los porcentajes de división
@@ -67,7 +71,7 @@ class DatasetGenerationInterface(QWidget):
         
         dataset_layout.addLayout(percentage_layout)
 
-        self.split_dataset_button = self.create_button("Dividir Dataset", "#3498db", "#2980b9", self.show_format_selection_popup)
+        self.split_dataset_button = self.create_button("Dividir Dataset", "#000000", "#333333", "#333333", "#555555", self.show_format_selection_popup)
         self.split_dataset_button.setEnabled(True)
         dataset_layout.addWidget(self.split_dataset_button, alignment=Qt.AlignCenter)
 
@@ -87,11 +91,11 @@ class DatasetGenerationInterface(QWidget):
         main_layout.addWidget(model_group)
 
         # Botón para validar y entrenar
-        self.validate_button = self.create_button("Realizar Inferencia", "#27ae60", "#2ecc71", self.validate_and_train)
+        self.validate_button = self.create_button("Realizar Inferencia", "#000000", "#333333", "#333333", "#555555", self.validate_and_train)
         main_layout.addWidget(self.validate_button, alignment=Qt.AlignCenter)
 
         # Botón para volver al menú principal
-        self.back_button = self.create_button("Volver", "#e74c3c", "#c0392b", self.back_to_main_menu, small=True)
+        self.back_button = self.create_button("Volver", "#e74c3c", "#c0392b", "#d35400", "#e74c3c", self.back_to_main_menu, small=True)
         main_layout.addWidget(self.back_button, alignment=Qt.AlignCenter)
 
         # Etiqueta para mostrar el estado
@@ -118,15 +122,28 @@ class DatasetGenerationInterface(QWidget):
         self.valid_slider.setValue(15)
         self.test_slider.setValue(15)
         self.update_sliders()
+
         
-    def create_button(self, text, color, hover_color, callback, small=False):
+
+
+    def create_button(self, text, color_start, color_end, hover_color_start, hover_color_end, callback, small=False):
         button = QPushButton(text, self)
-        font_size = 10 if small else 14
+        font_size = 12 if small else 14
         button.setFont(QFont("Arial", font_size))
-        button.setStyleSheet(f"QPushButton {{ background-color: {color}; color: white; border: none; padding: 5px; }}"
-                             f"QPushButton:hover {{ background-color: {hover_color}; }}")
+        button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {color_start}, stop:1 {color_end});
+                color: white;
+                border: none;
+                padding: 10px;
+            }}
+            QPushButton:hover {{
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {hover_color_start}, stop:1 {hover_color_end});
+            }}
+        """)
         button.clicked.connect(callback)
         return button
+
 
     def create_percentage_combo(self):
         combo = QComboBox(self)
@@ -619,9 +636,123 @@ class DatasetGenerationInterface(QWidget):
             else:
                 QMessageBox.information(self, "Información", "Entrenamiento completado.")
    
+    def train_alexnet(self):
+        # Preguntar al usuario si desea usar CPU o GPU
+        devices = ["CPU", "GPU"]
+        device_choice, ok = QInputDialog.getItem(self, "Seleccione el dispositivo", "Seleccione el dispositivo para entrenar:", devices, 0, False)
+        if not ok:
+            return
+
+        device = torch.device("cuda:0" if device_choice == "GPU" and torch.cuda.is_available() else "cpu")
+        
+        # Configuración de las transformaciones para los datos de entrenamiento y validación
+        data_transforms = {
+            'train': transforms.Compose([
+                transforms.RandomResizedCrop(224),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ]),
+            'valid': transforms.Compose([
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ]),
+            'test': transforms.Compose([
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ]),
+        }
+
+        # Cargar los datos en formato Pascal VOC
+        data_dir = self.dataset_dir
+        image_datasets = {
+            'train': VOCDetection(os.path.join(data_dir, 'train'), year='2012', image_set='train', download=False, transform=data_transforms['train']),
+            'valid': VOCDetection(os.path.join(data_dir, 'valid'), year='2012', image_set='val', download=False, transform=data_transforms['valid']),
+            'test': VOCDetection(os.path.join(data_dir, 'test'), year='2012', image_set='test', download=False, transform=data_transforms['test'])
+        }
+        
+        dataloaders = {x: DataLoader(image_datasets[x], batch_size=32, shuffle=True, num_workers=4)
+                       for x in ['train', 'valid', 'test']}
+        dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'valid', 'test']}
+        class_names = image_datasets['train'].classes
+
+        # Inicializar el modelo AlexNet preentrenado
+        model_ft = models.alexnet(pretrained=True)
+        num_ftrs = model_ft.classifier[6].in_features
+        model_ft.classifier[6] = nn.Linear(num_ftrs, len(class_names))
+
+        model_ft = model_ft.to(device)
+
+        criterion = nn.CrossEntropyLoss()
+
+        # Usar un optimizador SGD
+        optimizer_ft = optim.SGD(model_ft.parameters(), lr=0.001, momentum=0.9)
+
+        # Planificar una tasa de aprendizaje que decrezca con el tiempo
+        exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer_ft, step_size=7, gamma=0.1)
+
+        # Entrenar el modelo
+        num_epochs = 25
+        for epoch in range(num_epochs):
+            print(f'Epoch {epoch}/{num_epochs - 1}')
+            print('-' * 10)
+
+            # Cada época tiene una fase de entrenamiento, validación y prueba
+            for phase in ['train', 'valid', 'test']:
+                if phase == 'train':
+                    model_ft.train()  # Configurar el modelo en modo entrenamiento
+                else:
+                    model_ft.eval()   # Configurar el modelo en modo evaluación
+
+                running_loss = 0.0
+                running_corrects = 0
+
+                # Iterar sobre los datos
+                for inputs, targets in dataloaders[phase]:
+                    inputs = inputs.to(device)
+                    labels = targets['annotation']['object']
+                    labels = [class_names.index(obj['name']) for obj in labels]
+                    labels = torch.tensor(labels).to(device)
+
+                    # Limpiar los gradientes de las variables optimizadas
+                    optimizer_ft.zero_grad()
+
+                    # Hacer la propagación hacia adelante
+                    with torch.set_grad_enabled(phase == 'train'):
+                        outputs = model_ft(inputs)
+                        _, preds = torch.max(outputs, 1)
+                        loss = criterion(outputs, labels)
+
+                        # Hacer la propagación hacia atrás y optimizar solo en la fase de entrenamiento
+                        if phase == 'train':
+                            loss.backward()
+                            optimizer_ft.step()
+
+                    # Estadísticas
+                    running_loss += loss.item() * inputs.size(0)
+                    running_corrects += torch.sum(preds == labels.data)
+
+                if phase == 'train':
+                    exp_lr_scheduler.step()
+
+                epoch_loss = running_loss / dataset_sizes[phase]
+                epoch_acc = running_corrects.double() / dataset_sizes[phase]
+
+                print(f'{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
+
+            print()
+
+        QMessageBox.information(self, "Entrenamiento de AlexNet", "El entrenamiento de AlexNet se ha completado.")
+
 
     def validate_and_train(self):
         selected_model = self.model_selection_combo.currentText()
         if selected_model == "YoloV8":
             self.train()
+        elif selected_model == "AlexNet":
+            self.train_alexnet()
         # Añadir lógica para otros modelos si es necesario
