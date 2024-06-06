@@ -812,12 +812,8 @@ class CameraApp(QWidget):
             sam_image = cv2.imread(image_path)
             self.sam_predictor.set_image(sam_image)
 
-            masks = []
-            bboxes = []
-
             H, W, _ = sam_image.shape
             boxes_xyxy = box_ops.box_cxcywh_to_xyxy(boxes) * torch.tensor([W, H, W, H])
-
             transformed_boxes = self.sam_predictor.transform.apply_boxes_torch(boxes_xyxy, image_source.shape[:2])
             masks, _, _ = self.sam_predictor.predict_torch(
                 point_coords=None,
@@ -848,132 +844,79 @@ class CameraApp(QWidget):
             filtered_phrases = phrases
             filtered_logits = logits
 
+        proceed_with_labeling = True
         if not self.single_label_mode:
             if any(logit < confidence_threshold for logit in logits):
                 confirmation_dialog = ConfirmationDialog(annotated_frame, self)
                 proceed_with_labeling = (confirmation_dialog.exec_() == QDialog.Accepted)
-
-                if proceed_with_labeling:
-                    labels_path = os.path.join(self.capture_dir, f"labels_{image_id}.json")
-                    with open(labels_path, "w") as f:
-                        json.dump(combined_labels, f)
-
-                    export_format = self.format_combo.currentText()
-
-                    if self.sam_button.isChecked():
-                        coco_segmentation_dir = os.path.join(self.capture_dir, "exportation_in_COCO_with_Segmentation")
-                        annotations_dir = os.path.join(coco_segmentation_dir, "annotations")
-                        images_dir = os.path.join(coco_segmentation_dir, "images")
-
-                        create_dir(coco_segmentation_dir)
-                        create_dir(annotations_dir)
-                        create_dir(images_dir)
-
-                        shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
-                        export_to_coco_segmentation(image_path, combined_labels, boxes, masks, annotations_dir)
-                        QMessageBox.information(self, "Éxito", f"Imagen capturada y etiquetada con éxito en formato COCO with Segmentation.\nDirectorio: {self.capture_dir}")
-                    else:
-                        if export_format == "Pascal-VOC":
-                            pascal_voc_dir = os.path.join(self.capture_dir, "exportation_in_pascalVOC")
-                            annotations_dir = os.path.join(pascal_voc_dir, "Annotations")
-                            images_dir = os.path.join(pascal_voc_dir, "images")
-
-                            create_dir(pascal_voc_dir)
-                            create_dir(annotations_dir)
-                            create_dir(images_dir)
-
-                            shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
-                            export_to_pascal_voc_annotations(image_path, filtered_boxes, filtered_phrases, annotations_dir, combined_labels)
-
-                        elif export_format == "COCO":
-                            coco_dir = os.path.join(self.capture_dir, "exportation_in_COCO")
-                            images_dir = os.path.join(coco_dir, "images")
-                            annotations_dir = os.path.join(coco_dir, "annotations")
-
-                            create_dir(coco_dir)
-                            create_dir(images_dir)
-                            create_dir(annotations_dir)
-
-                            shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
-                            export_to_coco(image_path, filtered_boxes, filtered_phrases, coco_dir, combined_labels)
-
-                        elif export_format == "YOLO":
-                            yolo_dir = os.path.join(self.capture_dir, "exportation_in_YOLO")
-                            images_dir = os.path.join(yolo_dir, "images")
-                            labels_dir = os.path.join(yolo_dir, "labels")
-
-                            create_dir(yolo_dir)
-                            create_dir(images_dir)
-                            create_dir(labels_dir)
-
-                            shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
-                            export_to_yolo(image_path, filtered_boxes, filtered_phrases, yolo_dir, combined_labels)
-        elif self.single_label_mode:
-            # Mostrar la imagen anotada en el diálogo de confirmación
+        else:
             confirmation_dialog = ConfirmationDialog(annotated_frame, self)
-            
-            if confirmation_dialog.exec_() == QDialog.Accepted:
-                labels_path = os.path.join(self.capture_dir, f"labels_{image_id}.json")
-                with open(labels_path, "w") as f:
-                    json.dump(combined_labels, f)
+            proceed_with_labeling = (confirmation_dialog.exec_() == QDialog.Accepted)
 
-                export_format = self.format_combo.currentText()
 
-                if self.sam_button.isChecked():
-                    coco_segmentation_dir = os.path.join(self.capture_dir, "exportation_in_COCO_with_Segmentation")
-                    annotations_dir = os.path.join(coco_segmentation_dir, "annotations")
-                    images_dir = os.path.join(coco_segmentation_dir, "images")
+        if proceed_with_labeling:
+            labels_path = os.path.join(self.capture_dir, f"labels_{image_id}.json")
+            with open(labels_path, "w") as f:
+                json.dump(combined_labels, f)
 
-                    create_dir(coco_segmentation_dir)
+            export_format = self.format_combo.currentText()
+
+            if self.sam_button.isChecked():
+                coco_segmentation_dir = os.path.join(self.capture_dir, "exportation_in_COCO_with_Segmentation")
+                annotations_dir = os.path.join(coco_segmentation_dir, "annotations")
+                images_dir = os.path.join(coco_segmentation_dir, "images")
+
+                create_dir(coco_segmentation_dir)
+                create_dir(annotations_dir)
+                create_dir(images_dir)
+
+                shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
+                export_to_coco_segmentation(image_path, combined_labels, boxes, masks, annotations_dir)
+                QMessageBox.information(self, "Éxito", f"Imagen capturada y etiquetada con éxito en formato COCO with Segmentation.\nDirectorio: {self.capture_dir}")
+            else:
+                if export_format == "Pascal-VOC":
+                    pascal_voc_dir = os.path.join(self.capture_dir, "exportation_in_pascalVOC")
+                    annotations_dir = os.path.join(pascal_voc_dir, "Annotations")
+                    images_dir = os.path.join(pascal_voc_dir, "images")
+
+                    create_dir(pascal_voc_dir)
                     create_dir(annotations_dir)
                     create_dir(images_dir)
 
                     shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
-                    export_to_coco_segmentation(image_path, combined_labels, boxes, masks, annotations_dir)
-                    QMessageBox.information(self, "Éxito", f"Imagen capturada y etiquetada con éxito en formato COCO with Segmentation.\nDirectorio: {self.capture_dir}")
-                else:
-                    if export_format == "Pascal-VOC":
-                        pascal_voc_dir = os.path.join(self.capture_dir, "exportation_in_pascalVOC")
-                        annotations_dir = os.path.join(pascal_voc_dir, "Annotations")
-                        images_dir = os.path.join(pascal_voc_dir, "images")
+                    export_to_pascal_voc_annotations(image_path, filtered_boxes, filtered_phrases, annotations_dir, combined_labels)
 
-                        create_dir(pascal_voc_dir)
-                        create_dir(annotations_dir)
-                        create_dir(images_dir)
+                elif export_format == "COCO":
+                    coco_dir = os.path.join(self.capture_dir, "exportation_in_COCO")
+                    images_dir = os.path.join(coco_dir, "images")
+                    annotations_dir = os.path.join(coco_dir, "annotations")
 
-                        shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
-                        export_to_pascal_voc_annotations(image_path, filtered_boxes, filtered_phrases, annotations_dir, combined_labels)
+                    create_dir(coco_dir)
+                    create_dir(images_dir)
+                    create_dir(annotations_dir)
 
-                    elif export_format == "COCO":
-                        coco_dir = os.path.join(self.capture_dir, "exportation_in_COCO")
-                        images_dir = os.path.join(coco_dir, "images")
-                        annotations_dir = os.path.join(coco_dir, "annotations")
+                    shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
+                    export_to_coco(image_path, filtered_boxes, filtered_phrases, coco_dir, combined_labels)
 
-                        create_dir(coco_dir)
-                        create_dir(images_dir)
-                        create_dir(annotations_dir)
+                elif export_format == "YOLO":
+                    yolo_dir = os.path.join(self.capture_dir, "exportation_in_YOLO")
+                    images_dir = os.path.join(yolo_dir, "images")
+                    labels_dir = os.path.join(yolo_dir, "labels")
 
-                        shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
-                        export_to_coco(image_path, filtered_boxes, filtered_phrases, coco_dir, combined_labels)
+                    create_dir(yolo_dir)
+                    create_dir(images_dir)
+                    create_dir(labels_dir)
 
-                    elif export_format == "YOLO":
-                        yolo_dir = os.path.join(self.capture_dir, "exportation_in_YOLO")
-                        images_dir = os.path.join(yolo_dir, "images")
-                        labels_dir = os.path.join(yolo_dir, "labels")
+                    shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
+                    export_to_yolo(image_path, filtered_boxes, filtered_phrases, yolo_dir, combined_labels)
 
-                        create_dir(yolo_dir)
-                        create_dir(images_dir)
-                        create_dir(labels_dir)
-
-                        shutil.copy(image_path, os.path.join(images_dir, os.path.basename(image_path)))
-                        export_to_yolo(image_path, filtered_boxes, filtered_phrases, yolo_dir, combined_labels)
-        
         self.current_image_index += 1
         self.progress_bar.setValue(self.current_image_index)
         if self.current_image_index < len(self.image_paths):
             self.process_next_image()
         else:
             QMessageBox.information(self, "Completado", "Todas las imágenes han sido procesadas.")
+
         
 if __name__ == "__main__":
     app = QApplication(sys.argv)

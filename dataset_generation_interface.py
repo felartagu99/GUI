@@ -1,6 +1,6 @@
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QPushButton, QFileDialog, QLabel, QHBoxLayout, QComboBox, QMessageBox, QDialog, QDialogButtonBox,
-                            QInputDialog, QLineEdit, QGroupBox, QMainWindow, QScrollArea, QProgressDialog, QPlainTextEdit, QApplication)
-from PyQt5.QtGui import QFont, QPixmap
+                            QInputDialog, QLineEdit, QGroupBox, QSlider, QScrollArea)
+from PyQt5.QtGui import QFont
 from PyQt5.QtCore import Qt
 import os
 import shutil
@@ -29,35 +29,46 @@ class DatasetGenerationInterface(QWidget):
         main_layout = QVBoxLayout()
 
         # Botón para seleccionar el dataset, ubicado en la parte superior
-        self.select_dataset_button = self.create_button("Seleccionar Dataset", "#3498db", "#2980b9", self.select_dataset)
+        self.select_dataset_button = self.create_button("Seleccionar Carpeta", "#3498db", "#2980b9", self.select_dataset)
         main_layout.addWidget(self.select_dataset_button, alignment=Qt.AlignCenter)
 
         # Sección de Selección de Dataset
         dataset_group = QGroupBox("Seleccionar Dataset")
         dataset_layout = QVBoxLayout()
 
-        # Desplegables para seleccionar los porcentajes de división
-        self.train_percentage_combo = self.create_percentage_combo()
-        self.valid_percentage_combo = self.create_percentage_combo()
-        self.test_percentage_combo = self.create_percentage_combo()
+        # Sliders para seleccionar los porcentajes de división
+        self.train_slider = self.create_slider()
+        self.valid_slider = self.create_slider()
+        self.test_slider = self.create_slider()
 
-        # Establecer valores iniciales
-        self.train_percentage_combo.setCurrentIndex(70)
-        self.valid_percentage_combo.setCurrentIndex(15)
-        self.test_percentage_combo.setCurrentIndex(15)
+        # Etiquetas para mostrar los valores de los sliders
+        self.train_label = QLabel("Train: 70%", self)
+        self.valid_label = QLabel("Valid: 15%", self)
+        self.test_label = QLabel("Test: 15%", self)
 
-        # Añadir desplegables al layout
-        percentage_layout = QHBoxLayout()
-        percentage_layout.addWidget(QLabel("Train:"))
-        percentage_layout.addWidget(self.train_percentage_combo)
-        percentage_layout.addWidget(QLabel("Valid:"))
-        percentage_layout.addWidget(self.valid_percentage_combo)
-        percentage_layout.addWidget(QLabel("Test:"))
-        percentage_layout.addWidget(self.test_percentage_combo)
+        # Añadir sliders y etiquetas al layout
+        percentage_layout = QVBoxLayout()
+        
+        train_layout = QHBoxLayout()
+        train_layout.addWidget(self.train_label)
+        train_layout.addWidget(self.train_slider)
+        
+        valid_layout = QHBoxLayout()
+        valid_layout.addWidget(self.valid_label)
+        valid_layout.addWidget(self.valid_slider)
+        
+        test_layout = QHBoxLayout()
+        test_layout.addWidget(self.test_label)
+        test_layout.addWidget(self.test_slider)
+        
+        percentage_layout.addLayout(train_layout)
+        percentage_layout.addLayout(valid_layout)
+        percentage_layout.addLayout(test_layout)
+        
         dataset_layout.addLayout(percentage_layout)
 
         self.split_dataset_button = self.create_button("Dividir Dataset", "#3498db", "#2980b9", self.show_format_selection_popup)
-        self.split_dataset_button.setEnabled(False)
+        self.split_dataset_button.setEnabled(True)
         dataset_layout.addWidget(self.split_dataset_button, alignment=Qt.AlignCenter)
 
         dataset_group.setLayout(dataset_layout)
@@ -97,6 +108,17 @@ class DatasetGenerationInterface(QWidget):
 
         self.setLayout(main_layout)
 
+        # Conectar sliders para actualizar los valores
+        self.train_slider.valueChanged.connect(self.update_sliders)
+        self.valid_slider.valueChanged.connect(self.update_sliders)
+        self.test_slider.valueChanged.connect(self.update_sliders)
+
+        # Inicializar los valores de los sliders
+        self.train_slider.setValue(70)
+        self.valid_slider.setValue(15)
+        self.test_slider.setValue(15)
+        self.update_sliders()
+        
     def create_button(self, text, color, hover_color, callback, small=False):
         button = QPushButton(text, self)
         font_size = 10 if small else 14
@@ -116,6 +138,44 @@ class DatasetGenerationInterface(QWidget):
         popup.accept()
         func()
 
+    def create_slider(self):
+        slider = QSlider(Qt.Horizontal, self)
+        slider.setRange(0, 100)
+        slider.setSingleStep(1)
+        slider.setTickInterval(10)
+        slider.setTickPosition(QSlider.TicksBelow)
+        return slider
+
+    def update_sliders(self):
+        total = self.train_slider.value() + self.valid_slider.value() + self.test_slider.value()
+
+        # Adjust the sliders to make sure they sum up to 100%
+        if total != 100:
+            if self.sender() == self.train_slider:
+                difference = total - 100
+                self.adjust_slider(self.valid_slider, self.test_slider, difference)
+            elif self.sender() == self.valid_slider:
+                difference = total - 100
+                self.adjust_slider(self.train_slider, self.test_slider, difference)
+            elif self.sender() == self.test_slider:
+                difference = total - 100
+                self.adjust_slider(self.train_slider, self.valid_slider, difference)
+
+        self.train_label.setText(f"Train: {self.train_slider.value()}%")
+        self.valid_label.setText(f"Valid: {self.valid_slider.value()}%")
+        self.test_label.setText(f"Test: {self.test_slider.value()}%")
+        
+        
+    def adjust_slider(self, slider1, slider2, difference):
+        if slider1.value() - difference >= 0:
+            slider1.setValue(slider1.value() - difference)
+        elif slider2.value() - difference >= 0:
+            slider2.setValue(slider2.value() - difference)
+        else:
+            remainder = difference - slider1.value()
+            slider1.setValue(0)
+            slider2.setValue(slider2.value() - remainder)
+            
     def select_dataset(self):
         options = QFileDialog.Options()
         options |= QFileDialog.DontUseNativeDialog
@@ -155,9 +215,9 @@ class DatasetGenerationInterface(QWidget):
     def split_dataset_pascal_voc(self):
         if self.dataset_dir:
             # Obtener los porcentajes seleccionados
-            train_percentage = int(self.train_percentage_combo.currentText().strip('%')) / 100
-            valid_percentage = int(self.valid_percentage_combo.currentText().strip('%')) / 100
-            test_percentage = int(self.test_percentage_combo.currentText().strip('%')) / 100
+            train_percentage = int(self.train_slider.value()) / 100
+            valid_percentage = int(self.valid_slider.value()) / 100
+            test_percentage = int(self.test_slider.value()) / 100
 
             if train_percentage + valid_percentage + test_percentage != 1.0:
                 self.status_label.setText("Los porcentajes deben sumar 100%.")
@@ -232,11 +292,18 @@ class DatasetGenerationInterface(QWidget):
 
     def split_dataset_yolo(self):
         if self.dataset_dir:
-            # Verificar si existe el archivo data.yaml en el directorio del dataset
-            data_yaml_path = os.path.join(self.dataset_dir, 'data.yaml')
-            if not os.path.exists(data_yaml_path):
-                self.status_label.setText("No se encontró el archivo data.yaml en el directorio del dataset.")
-                QMessageBox.warning(self, "Advertencia", "No se encontró el archivo data.yaml en el directorio del dataset.")
+            # Mostrar el diálogo para introducir las etiquetas
+            labels_text, ok = QInputDialog.getText(self, "Introduce las etiquetas", "Etiquetas (separadas por comas):", QLineEdit.Normal)
+            
+            if not ok or not labels_text:
+                self.status_label.setText("Operación cancelada o no se introdujeron etiquetas.")
+                return
+            
+            # Procesar las etiquetas introducidas
+            labels = [label.strip() for label in labels_text.split(',')]
+            
+            if not labels:
+                self.status_label.setText("No se introdujeron etiquetas válidas.")
                 return
 
             # Obtener los porcentajes seleccionados
@@ -260,11 +327,11 @@ class DatasetGenerationInterface(QWidget):
 
             # Subcarpetas para imágenes y anotaciones
             train_images_dir = os.path.join(train_dir, 'images')
-            train_annotations_dir = os.path.join(train_dir, 'labels')
+            train_annotations_dir = os.path.join(train_dir, 'annotations')
             valid_images_dir = os.path.join(valid_dir, 'images')
-            valid_annotations_dir = os.path.join(valid_dir, 'labels')
+            valid_annotations_dir = os.path.join(valid_dir, 'annotations')
             test_images_dir = os.path.join(test_dir, 'images')
-            test_annotations_dir = os.path.join(test_dir, 'labels')
+            test_annotations_dir = os.path.join(test_dir, 'annotations')
 
             os.makedirs(train_images_dir, exist_ok=True)
             os.makedirs(train_annotations_dir, exist_ok=True)
@@ -275,7 +342,7 @@ class DatasetGenerationInterface(QWidget):
 
             # Directorios de imágenes y anotaciones
             images_dir = os.path.join(self.dataset_dir, 'images')
-            annotations_dir = os.path.join(self.dataset_dir, 'labels')
+            annotations_dir = os.path.join(self.dataset_dir, 'annotations')
 
             images = []
             annotations = {}
@@ -327,11 +394,20 @@ class DatasetGenerationInterface(QWidget):
             copy_files(valid_pairs, valid_images_dir, valid_annotations_dir)
             copy_files(test_pairs, test_images_dir, test_annotations_dir)
 
-            # Mover el archivo data.yaml a la carpeta split_dataset
-            shutil.copy(data_yaml_path, split_dir)
+            # Crear el archivo data.yaml
+            data_yaml = {
+                'train': os.path.relpath(train_images_dir, split_dir),
+                'val': os.path.relpath(valid_images_dir, split_dir),
+                'test': os.path.relpath(test_images_dir, split_dir),
+                'nc': len(labels),
+                'names': labels
+            }
 
-            self.show_popup("Dataset dividido en carpetas 'train', 'valid' y 'test' con subcarpetas 'images' y 'labels'.")
-            self.status_label.setText("Dataset dividido en carpetas 'train', 'valid' y 'test' con subcarpetas 'images' y 'labels'.")
+            with open(os.path.join(split_dir, 'data.yaml'), 'w') as yaml_file:
+                yaml.dump(data_yaml, yaml_file, default_flow_style=True)
+
+            self.show_popup("Dataset dividido en carpetas 'train', 'valid' y 'test' con subcarpetas 'images' y 'annotations'.")
+            self.status_label.setText("Dataset dividido en carpetas 'train', 'valid' y 'test' con subcarpetas 'images' y 'annotations'.")
              
     def split_dataset_coco(self):
          if self.dataset_dir:
@@ -518,8 +594,6 @@ class DatasetGenerationInterface(QWidget):
         self.dataset_dir = dataset_dir
         self.validate_and_train()
 
-    
-
     def train(self):
             # Cuadro de diálogo para seleccionar dispositivo
         items = ("CPU", "GPU")
@@ -544,9 +618,7 @@ class DatasetGenerationInterface(QWidget):
                 QMessageBox.warning(self, "Advertencia", f"Error durante el entrenamiento: {str(e)}")
             else:
                 QMessageBox.information(self, "Información", "Entrenamiento completado.")
-
-
-        
+   
 
     def validate_and_train(self):
         selected_model = self.model_selection_combo.currentText()
