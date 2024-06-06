@@ -8,18 +8,70 @@ import random
 import yaml
 import torch
 import torch.nn as nn
+import matplotlib.pyplot as plt
 import torch.optim as optim
 import numpy as np
 import cv2
+import xml.etree.ElementTree as ET
 from ultralytics import YOLO
 from PIL import Image
 from torchvision import (transforms, models, datasets)
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torchvision.datasets import VOCDetection
 
 
 
 
+class VOCDataset(Dataset):
+    def __init__(self, root_dir, transform=None):
+        self.root_dir = root_dir
+        self.transform = transform
+        self.image_paths = []
+        self.labels = []
+        self.class_names = []
+
+        for root, _, files in os.walk(root_dir):
+            for file in files:
+                if file.endswith(('.jpg', '.jpeg', '.png')):
+                    img_path = os.path.join(root, file)
+                    xml_path = os.path.join(root, file.rsplit('.', 1)[0] + '.xml')
+                    if os.path.exists(xml_path):
+                        self.image_paths.append(img_path)
+                        self.labels.append(self.parse_xml(xml_path))
+                    else:
+                        print(f"Warning: XML file not found for image {img_path}")
+
+        if not self.image_paths:
+            raise RuntimeError(f"No valid images found in directory {root_dir}.")
+
+        self.class_names = list(set(self.labels))
+        self.class_to_idx = {class_name: idx for idx, class_name in enumerate(self.class_names)}
+
+        # Convert labels to indices
+        self.labels = [self.class_to_idx[label] for label in self.labels]
+
+    def parse_xml(self, xml_path):
+        try:
+            tree = ET.parse(xml_path)
+            root = tree.getroot()
+            label = root.find('object').find('name').text
+            return label
+        except Exception as e:
+            print(f"Error parsing XML {xml_path}: {e}")
+            return None
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        img_path = self.image_paths[idx]
+        image = Image.open(img_path).convert('RGB')
+        label = self.labels[idx]
+
+        if self.transform:
+            image = self.transform(image)
+
+        return image, label
 
 class DatasetGenerationInterface(QWidget):
     def __init__(self, parent=None, welcome_interface=None):
@@ -91,7 +143,7 @@ class DatasetGenerationInterface(QWidget):
         main_layout.addWidget(model_group)
 
         # Botón para validar y entrenar
-        self.validate_button = self.create_button("Realizar Inferencia", "#000000", "#333333", "#333333", "#555555", self.validate_and_train)
+        self.validate_button = self.create_button("Realizar Entrenamiento", "#000000", "#333333", "#333333", "#555555", self.validate_and_train)
         main_layout.addWidget(self.validate_button, alignment=Qt.AlignCenter)
 
         # Botón para volver al menú principal
@@ -644,7 +696,7 @@ class DatasetGenerationInterface(QWidget):
             return
 
         device = torch.device("cuda:0" if device_choice == "GPU" and torch.cuda.is_available() else "cpu")
-        
+
         # Configuración de las transformaciones para los datos de entrenamiento y validación
         data_transforms = {
             'train': transforms.Compose([
@@ -669,16 +721,21 @@ class DatasetGenerationInterface(QWidget):
 
         # Cargar los datos en formato Pascal VOC
         data_dir = self.dataset_dir
-        image_datasets = {
-            'train': VOCDetection(os.path.join(data_dir, 'train'), year='2012', image_set='train', download=False, transform=data_transforms['train']),
-            'valid': VOCDetection(os.path.join(data_dir, 'valid'), year='2012', image_set='val', download=False, transform=data_transforms['valid']),
-            'test': VOCDetection(os.path.join(data_dir, 'test'), year='2012', image_set='test', download=False, transform=data_transforms['test'])
-        }
-        
+        try:
+            image_datasets = {
+                'train': VOCDataset(os.path.join(data_dir, 'train'), transform=data_transforms['train']),
+                'valid': VOCDataset(os.path.join(data_dir, 'valid'), transform=data_transforms['valid']),
+                'test': VOCDataset(os.path.join(data_dir, 'test'), transform=data_transforms['test'])
+            }
+        except RuntimeError as e:
+            QMessageBox.critical(self, "Error", f"Ocurrió un error al cargar el dataset: {e}")
+            return
+
         dataloaders = {x: DataLoader(image_datasets[x], batch_size=32, shuffle=True, num_workers=4)
-                       for x in ['train', 'valid', 'test']}
+                    for x in ['train', 'valid', 'test']}
         dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'valid', 'test']}
-        class_names = image_datasets['train'].classes
+        
+        class_names = image_datasets['train'].class_names
 
         # Inicializar el modelo AlexNet preentrenado
         model_ft = models.alexnet(pretrained=True)
@@ -695,8 +752,12 @@ class DatasetGenerationInterface(QWidget):
         # Planificar una tasa de aprendizaje que decrezca con el tiempo
         exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer_ft, step_size=7, gamma=0.1)
 
+        # Listas para almacenar pérdidas y precisiones
+        train_losses, valid_losses, test_losses = [], [], []
+        train_accuracies, valid_accuracies, test_accuracies = [], [], []
+
         # Entrenar el modelo
-        num_epochs = 25
+        num_epochs = 15
         for epoch in range(num_epochs):
             print(f'Epoch {epoch}/{num_epochs - 1}')
             print('-' * 10)
@@ -712,11 +773,9 @@ class DatasetGenerationInterface(QWidget):
                 running_corrects = 0
 
                 # Iterar sobre los datos
-                for inputs, targets in dataloaders[phase]:
+                for inputs, labels in dataloaders[phase]:
                     inputs = inputs.to(device)
-                    labels = targets['annotation']['object']
-                    labels = [class_names.index(obj['name']) for obj in labels]
-                    labels = torch.tensor(labels).to(device)
+                    labels = labels.to(device)
 
                     # Limpiar los gradientes de las variables optimizadas
                     optimizer_ft.zero_grad()
@@ -744,7 +803,53 @@ class DatasetGenerationInterface(QWidget):
 
                 print(f'{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
 
+                # Guardar las pérdidas y precisiones
+                if phase == 'train':
+                    train_losses.append(epoch_loss)
+                    train_accuracies.append(epoch_acc)
+                elif phase == 'valid':
+                    valid_losses.append(epoch_loss)
+                    valid_accuracies.append(epoch_acc)
+                else:
+                    test_losses.append(epoch_loss)
+                    test_accuracies.append(epoch_acc)
+
             print()
+
+        # Guardar el modelo
+        torch.save(model_ft.state_dict(), 'model_final.pth')
+
+        # Guardar el historial de entrenamiento
+        with open('training_history.txt', 'w') as f:
+            f.write(f'Train Losses: {train_losses}\n')
+            f.write(f'Train Accuracies: {train_accuracies}\n')
+            f.write(f'Validation Losses: {valid_losses}\n')
+            f.write(f'Validation Accuracies: {valid_accuracies}\n')
+            f.write(f'Test Losses: {test_losses}\n')
+            f.write(f'Test Accuracies: {test_accuracies}\n')
+
+        # Visualizar las gráficas
+        import matplotlib.pyplot as plt
+
+        plt.figure(figsize=(10,5))
+        plt.title("Loss Over Epochs")
+        plt.plot(train_losses, label="Train Loss")
+        plt.plot(valid_losses, label="Validation Loss")
+        plt.plot(test_losses, label="Test Loss")
+        plt.xlabel("Epochs")
+        plt.ylabel("Loss")
+        plt.legend()
+        plt.show()
+
+        plt.figure(figsize=(10,5))
+        plt.title("Accuracy Over Epochs")
+        plt.plot(train_accuracies, label="Train Accuracy")
+        plt.plot(valid_accuracies, label="Validation Accuracy")
+        plt.plot(test_accuracies, label="Test Accuracy")
+        plt.xlabel("Epochs")
+        plt.ylabel("Accuracy")
+        plt.legend()
+        plt.show()
 
         QMessageBox.information(self, "Entrenamiento de AlexNet", "El entrenamiento de AlexNet se ha completado.")
 
