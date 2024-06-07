@@ -353,7 +353,7 @@ class ConfidenceThresholdDialog(QDialog):
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setMinimum(0)
         self.slider.setMaximum(100)
-        self.slider.setValue(50)
+        self.slider.setValue(35)
         self.slider.setTickInterval(10)
         self.slider.setTickPosition(QSlider.TicksBelow)
 
@@ -734,8 +734,20 @@ class CameraApp(QWidget):
                         multimask_output=False,
                     )
 
+                    # Crear una carpeta para guardar las máscaras binarias dentro de exportation_in_COCO_with_Segmentation
+                    coco_segmentation_dir = os.path.join(self.capture_dir, "exportation_in_COCO_with_Segmentation")
+                    masks_dir = os.path.join(coco_segmentation_dir, "masks")
+                    create_dir(coco_segmentation_dir)
+                    create_dir(masks_dir)
+
                     # Anotar la imagen con las máscaras y las cajas delimitadoras
-                    for mask in masks:
+                    for i, mask in enumerate(masks):
+                        # Guardar la máscara binaria
+                        mask_array = (mask[0].cpu().numpy() * 255).astype(np.uint8)
+                        mask_path = os.path.join(masks_dir, f"mask_{image_id}_{i}.png")
+                        cv2.imwrite(mask_path, mask_array)
+
+                        # Anotar la imagen
                         annotated_frame = show_mask(mask[0], annotated_frame)
 
                     # Dibujar bounding boxes de GroundingDINO
@@ -759,11 +771,9 @@ class CameraApp(QWidget):
                 
                 if self.sam_button.isChecked():
                     # Crear la estructura de directorios para COCO with Segmentation
-                    coco_segmentation_dir = os.path.join(self.capture_dir, "exportation_in_COCO_with_Segmentation")
                     annotations_dir = os.path.join(coco_segmentation_dir, "annotations")
                     images_dir = os.path.join(coco_segmentation_dir, "images")
 
-                    create_dir(coco_segmentation_dir)
                     create_dir(annotations_dir)
                     create_dir(images_dir)
 
@@ -850,7 +860,15 @@ class CameraApp(QWidget):
             )
 
             annotated_frame = cv2.imread(image_path)
-            for mask in masks:
+            coco_segmentation_dir = os.path.join(self.capture_dir, "exportation_in_COCO_with_Segmentation")
+            masks_dir = os.path.join(coco_segmentation_dir, "masks")
+            create_dir(coco_segmentation_dir)
+            create_dir(masks_dir)
+
+            for i, mask in enumerate(masks):
+                mask_array = (mask[0].cpu().numpy() * 255).astype(np.uint8)
+                mask_path = os.path.join(masks_dir, f"mask_{image_id}_{i}.png")
+                cv2.imwrite(mask_path, mask_array)
                 annotated_frame = show_mask(mask[0], annotated_frame)
 
             annotated_frame = draw_bounding_boxes(annotated_frame, boxes_xyxy.int().numpy(), phrases)
@@ -879,7 +897,6 @@ class CameraApp(QWidget):
         else:
             confirmation_dialog = ConfirmationDialog(annotated_frame, self)
             proceed_with_labeling = (confirmation_dialog.exec_() == QDialog.Accepted)
-
 
         if proceed_with_labeling:
             labels_path = os.path.join(self.capture_dir, f"labels_{image_id}.json")
@@ -943,7 +960,6 @@ class CameraApp(QWidget):
             self.process_next_image()
         else:
             QMessageBox.information(self, "Completado", "Todas las imágenes han sido procesadas.")
-
         
 if __name__ == "__main__":
     app = QApplication(sys.argv)
