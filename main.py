@@ -7,6 +7,7 @@ import numpy as np
 import json
 import supervision as sv
 import torch
+import collections
 from datetime import datetime
 from PyQt5.QtWidgets import (QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QMessageBox, QComboBox, QFileDialog, QInputDialog, QDialog, QProgressBar,

@@ -13,6 +13,7 @@ import torch.optim as optim
 import numpy as np
 import cv2
 import xml.etree.ElementTree as ET
+import torchvision
 from ultralytics import YOLO
 from PIL import Image
 from torchvision import (transforms, models, datasets)
@@ -854,10 +855,164 @@ class DatasetGenerationInterface(QWidget):
         QMessageBox.information(self, "Entrenamiento de AlexNet", "El entrenamiento de AlexNet se ha completado.")
 
 
+    
+    def train_model(self):
+            # Cuadro de diálogo para seleccionar el archivo del modelo
+            model_file, _ = QFileDialog.getOpenFileName(self, "Importa tu propio modelo", "", "Model Files (*.pt *.pth)")
+            if not model_file:
+                QMessageBox.warning(self, "Advertencia", "No se ha seleccionado ningún modelo.")
+                return None
+
+            # Cuadro de diálogo para seleccionar dispositivo
+            items = ("CPU", "GPU")
+            item, ok = QInputDialog.getItem(self, "Seleccionar Dispositivo", "Elija el dispositivo para entrenamiento:", items, 0, False)
+            if not ok or not item:
+                return None
+
+            device = 'cpu' if item == "CPU" else 'cuda'
+
+            if not self.dataset_dir:
+                QMessageBox.warning(self, "Advertencia", "No se ha seleccionado ningún dataset.")
+                return None
+
+            try:
+                # Cargar el state_dict del modelo especificado por el usuario
+                state_dict = torch.load(model_file, map_location=device)
+
+                # Inicializar una instancia del modelo y cargar el state_dict
+                # Detectar automáticamente el tipo de modelo
+                if "fasterrcnn" in model_file.lower():
+                    model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=None)
+                else:
+                    model = torchvision.models.resnet50(weights=None)  # Cambia esto según sea necesario
+
+                model.load_state_dict(state_dict)
+                model.to(device)
+
+                # Configurar el optimizador y la función de pérdida
+                if isinstance(model, torchvision.models.detection.FasterRCNN):
+                    params = [p for p in model.parameters() if p.requires_grad]
+                    optimizer = optim.SGD(params, lr=0.005, momentum=0.9, weight_decay=0.0005)
+                    lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=3, gamma=0.1)
+                    criterion = None  # No se necesita para Faster R-CNN
+                else:
+                    optimizer = optim.Adam(model.parameters(), lr=0.001)
+                    criterion = nn.CrossEntropyLoss()
+
+                # Transformaciones y DataLoader
+                transform = transforms.Compose([transforms.Resize((224, 224)), transforms.ToTensor()])
+
+                if isinstance(model, torchvision.models.detection.FasterRCNN):
+                    # Cargar datos del conjunto de entrenamiento
+                    dataset = []
+                    for filename in os.listdir(os.path.join(self.dataset_dir, 'train')):
+                        if filename.endswith('.jpg'):
+                            image_path = os.path.join(self.dataset_dir, 'train', filename)
+                            xml_path = image_path.replace('.jpg', '.xml')
+                            dataset.append((image_path, xml_path))
+                            
+                    train_dataset = VOCDataset(dataset, transform=transform)
+                    train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=4, collate_fn=lambda x: tuple(zip(*x)))
+                else:
+                    train_dataset = datasets.ImageFolder(self.dataset_dir, transform=transform)
+                    train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=32, shuffle=True)
+
+                # Función de entrenamiento
+                def train_model_generic(model, device, train_loader, optimizer, criterion, scheduler, epochs=10):
+                    model.train()
+                    train_losses = []
+                    train_accuracies = []
+
+                    for epoch in range(epochs):
+                        epoch_loss = 0
+                        correct = 0
+                        total = 0
+
+                        for batch_idx, (inputs, labels) in enumerate(train_loader):
+                            optimizer.zero_grad()
+                            if isinstance(model, torchvision.models.detection.FasterRCNN):
+                                inputs = list(image.to(device) for image in inputs)
+                                targets = [{k: v.to(device) for k, v in t.items()} for t in labels]
+                                loss_dict = model(inputs, targets)
+                                losses = sum(loss for loss in loss_dict.values())
+                                losses.backward()
+                                optimizer.step()
+                                epoch_loss += losses.item()
+                            else:
+                                inputs, labels = inputs.to(device), labels.to(device)
+                                outputs = model(inputs)
+                                loss = criterion(outputs, labels)
+                                loss.backward()
+                                optimizer.step()
+
+                                epoch_loss += loss.item()
+                                _, predicted = outputs.max(1)
+                                total += labels.size(0)
+                                correct += predicted.eq(labels).sum().item()
+
+                            if scheduler:
+                                scheduler.step()
+
+                        epoch_loss /= len(train_loader)
+                        accuracy = 100. * correct / total if not isinstance(model, torchvision.models.detection.FasterRCNN) else None
+
+                        train_losses.append(epoch_loss)
+                        if accuracy is not None:
+                            train_accuracies.append(accuracy)
+
+                        print(f'Epoch {epoch+1}/{epochs}, Loss: {epoch_loss:.6f}', end='')
+                        if accuracy is not None:
+                            print(f', Accuracy: {accuracy:.2f}%')
+
+                    return train_losses, train_accuracies
+
+                # Entrenar el modelo y obtener métricas
+                train_losses, train_accuracies = train_model_generic(model, device, train_loader, optimizer, criterion, lr_scheduler if isinstance(model, torchvision.models.detection.FasterRCNN) else None, epochs=10)
+
+                # Guardar el modelo entrenado
+                model_save_path, _ = QFileDialog.getSaveFileName(self, "Guardar Modelo Entrenado", "", "Model Files (*.pt *.pth)")
+                if model_save_path:
+                    torch.save(model.state_dict(), model_save_path)
+
+                # Generar y mostrar las gráficas
+                epochs = range(1, 11)
+
+                plt.figure(figsize=(12, 5))
+
+                plt.subplot(1, 2, 1)
+                plt.plot(epochs, train_losses, 'b', label='Train Loss')
+                plt.title('Loss over Epochs')
+                plt.xlabel('Epochs')
+                plt.ylabel('Loss')
+                plt.legend()
+
+                if train_accuracies:
+                    plt.subplot(1, 2, 2)
+                    plt.plot(epochs, train_accuracies, 'b', label='Train Accuracy')
+                    plt.title('Accuracy over Epochs')
+                    plt.xlabel('Epochs')
+                    plt.ylabel('Accuracy')
+                    plt.legend()
+
+                plt.tight_layout()
+                plt.show()
+
+            except Exception as e:
+                QMessageBox.warning(self, "Advertencia", f"Error durante el entrenamiento: {str(e)}")
+                return None
+            else:
+                QMessageBox.information(self, "Información", "Entrenamiento completado.")
+                return model  # Devuelve el modelo entrenado
+
+    
+    
+    
     def validate_and_train(self):
         selected_model = self.model_selection_combo.currentText()
         if selected_model == "YoloV8":
             self.train()
         elif selected_model == "AlexNet":
             self.train_alexnet()
+        elif selected_model == "Importa tu propio modelo":
+            self.train_model()
         # Añadir lógica para otros modelos si es necesario

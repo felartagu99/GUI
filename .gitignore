@@ -11,3 +11,4 @@ __pycache__/welcome_interface.cpython-311.pyc
 /runs
 training_history.txt
 model_final.pth
+/training stuff
