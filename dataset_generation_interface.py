@@ -7,15 +7,74 @@ import shutil
 import random
 import yaml
 import torch
+import torch.nn as nn
+import matplotlib.pyplot as plt
+import torch.optim as optim
 import numpy as np
 import cv2
+import xml.etree.ElementTree as ET
+import torchvision
+import seaborn as sns
 from ultralytics import YOLO
 from PIL import Image
-from torchvision import transforms
+from torchvision import (transforms, models, datasets)
+from torch.utils.data import DataLoader, Dataset
+from torchvision.datasets import VOCDetection
+from sklearn.metrics import confusion_matrix
 
 
 
 
+class VOCDataset(Dataset):
+    def __init__(self, root_dir, transform=None):
+        self.root_dir = root_dir
+        self.transform = transform
+        self.image_paths = []
+        self.labels = []
+        self.class_names = []
+
+        for root, _, files in os.walk(root_dir):
+            for file in files:
+                if file.endswith(('.jpg', '.jpeg', '.png')):
+                    img_path = os.path.join(root, file)
+                    xml_path = os.path.join(root, file.rsplit('.', 1)[0] + '.xml')
+                    if os.path.exists(xml_path):
+                        self.image_paths.append(img_path)
+                        self.labels.append(self.parse_xml(xml_path))
+                    else:
+                        print(f"Warning: XML file not found for image {img_path}")
+
+        if not self.image_paths:
+            raise RuntimeError(f"No valid images found in directory {root_dir}.")
+
+        self.class_names = list(set(self.labels))
+        self.class_to_idx = {class_name: idx for idx, class_name in enumerate(self.class_names)}
+
+        # Convert labels to indices
+        self.labels = [self.class_to_idx[label] for label in self.labels]
+
+    def parse_xml(self, xml_path):
+        try:
+            tree = ET.parse(xml_path)
+            root = tree.getroot()
+            label = root.find('object').find('name').text
+            return label
+        except Exception as e:
+            print(f"Error parsing XML {xml_path}: {e}")
+            return None
+
+    def __len__(self):
+        return len(self.image_paths)
+
+    def __getitem__(self, idx):
+        img_path = self.image_paths[idx]
+        image = Image.open(img_path).convert('RGB')
+        label = self.labels[idx]
+
+        if self.transform:
+            image = self.transform(image)
+
+        return image, label
 
 class DatasetGenerationInterface(QWidget):
     def __init__(self, parent=None, welcome_interface=None):
@@ -30,11 +89,11 @@ class DatasetGenerationInterface(QWidget):
         main_layout = QVBoxLayout()
 
         # Botón para seleccionar el dataset, ubicado en la parte superior
-        self.select_dataset_button = self.create_button("Seleccionar Carpeta", "#3498db", "#2980b9", self.select_dataset)
+        self.select_dataset_button = self.create_button("Seleccionar Carpeta", "#000000", "#333333", "#333333", "#555555", self.select_dataset)
         main_layout.addWidget(self.select_dataset_button, alignment=Qt.AlignCenter)
 
         # Sección de Selección de Dataset
-        dataset_group = QGroupBox("Seleccionar Dataset")
+        dataset_group = QGroupBox("Seleccionar Porcentajes")
         dataset_layout = QVBoxLayout()
 
         # Sliders para seleccionar los porcentajes de división
@@ -68,7 +127,7 @@ class DatasetGenerationInterface(QWidget):
         
         dataset_layout.addLayout(percentage_layout)
 
-        self.split_dataset_button = self.create_button("Dividir Dataset", "#3498db", "#2980b9", self.show_format_selection_popup)
+        self.split_dataset_button = self.create_button("Dividir Dataset", "#000000", "#333333", "#333333", "#555555", self.show_format_selection_popup)
         self.split_dataset_button.setEnabled(True)
         dataset_layout.addWidget(self.split_dataset_button, alignment=Qt.AlignCenter)
 
@@ -93,11 +152,11 @@ class DatasetGenerationInterface(QWidget):
         main_layout.addWidget(model_group)
 
         # Botón para validar y entrenar
-        self.validate_button = self.create_button("Realizar Inferencia", "#27ae60", "#2ecc71", self.validate_and_train)
+        self.validate_button = self.create_button("Realizar Entrenamiento", "#000000", "#333333", "#333333", "#555555", self.validate_and_train)
         main_layout.addWidget(self.validate_button, alignment=Qt.AlignCenter)
 
         # Botón para volver al menú principal
-        self.back_button = self.create_button("Volver", "#e74c3c", "#c0392b", self.back_to_main_menu, small=True)
+        self.back_button = self.create_button("Volver", "#e74c3c", "#c0392b", "#d35400", "#e74c3c", self.back_to_main_menu, small=True)
         main_layout.addWidget(self.back_button, alignment=Qt.AlignCenter)
 
         # Etiqueta para mostrar el estado
@@ -124,15 +183,28 @@ class DatasetGenerationInterface(QWidget):
         self.valid_slider.setValue(15)
         self.test_slider.setValue(15)
         self.update_sliders()
+
         
-    def create_button(self, text, color, hover_color, callback, small=False):
+
+
+    def create_button(self, text, color_start, color_end, hover_color_start, hover_color_end, callback, small=False):
         button = QPushButton(text, self)
-        font_size = 10 if small else 14
+        font_size = 12 if small else 14
         button.setFont(QFont("Arial", font_size))
-        button.setStyleSheet(f"QPushButton {{ background-color: {color}; color: white; border: none; padding: 5px; }}"
-                             f"QPushButton:hover {{ background-color: {hover_color}; }}")
+        button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {color_start}, stop:1 {color_end});
+                color: white;
+                border: none;
+                padding: 10px;
+            }}
+            QPushButton:hover {{
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {hover_color_start}, stop:1 {hover_color_end});
+            }}
+        """)
         button.clicked.connect(callback)
         return button
+
 
     def create_percentage_combo(self):
         combo = QComboBox(self)
@@ -634,9 +706,397 @@ class DatasetGenerationInterface(QWidget):
             else:
                 QMessageBox.information(self, "Información", "Entrenamiento completado.")
    
+    def train_alexnet(self):
+        # Preguntar al usuario si desea usar CPU o GPU
+        devices = ["CPU", "GPU"]
+        device_choice, ok = QInputDialog.getItem(self, "Seleccione el dispositivo", "Seleccione el dispositivo para entrenar:", devices, 0, False)
+        if not ok:
+            return
 
+        device = torch.device("cuda:0" if device_choice == "GPU" and torch.cuda.is_available() else "cpu")
+
+        # Configuración de las transformaciones para los datos de entrenamiento y validación
+        data_transforms = {
+            'train': transforms.Compose([
+                transforms.RandomResizedCrop(224),
+                transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ]),
+            'valid': transforms.Compose([
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ]),
+            'test': transforms.Compose([
+                transforms.Resize(256),
+                transforms.CenterCrop(224),
+                transforms.ToTensor(),
+                transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])
+            ]),
+        }
+
+        # Cargar los datos en formato Pascal VOC
+        data_dir = self.dataset_dir
+        try:
+            image_datasets = {
+                'train': VOCDataset(os.path.join(data_dir, 'train'), transform=data_transforms['train']),
+                'valid': VOCDataset(os.path.join(data_dir, 'valid'), transform=data_transforms['valid']),
+                'test': VOCDataset(os.path.join(data_dir, 'test'), transform=data_transforms['test'])
+            }
+        except RuntimeError as e:
+            QMessageBox.critical(self, "Error", f"Ocurrió un error al cargar el dataset: {e}")
+            return
+
+        dataloaders = {x: DataLoader(image_datasets[x], batch_size=32, shuffle=True, num_workers=4)
+                    for x in ['train', 'valid', 'test']}
+        dataset_sizes = {x: len(image_datasets[x]) for x in ['train', 'valid', 'test']}
+        
+        class_names = image_datasets['train'].class_names
+
+        # Inicializar el modelo AlexNet preentrenado
+        model_ft = models.alexnet(pretrained=True)
+        num_ftrs = model_ft.classifier[6].in_features
+        model_ft.classifier[6] = nn.Linear(num_ftrs, len(class_names))
+
+        model_ft = model_ft.to(device)
+
+        criterion = nn.CrossEntropyLoss()
+
+        # Usar un optimizador SGD
+        optimizer_ft = optim.SGD(model_ft.parameters(), lr=0.001, momentum=0.9)
+
+        # Planificar una tasa de aprendizaje que decrezca con el tiempo
+        exp_lr_scheduler = optim.lr_scheduler.StepLR(optimizer_ft, step_size=7, gamma=0.1)
+
+        # Listas para almacenar pérdidas y precisiones
+        train_losses, valid_losses, test_losses = [], [], []
+        train_accuracies, valid_accuracies, test_accuracies = [], [], []
+
+        # Listas para almacenar etiquetas verdaderas y predichas para la matriz de confusión
+        all_labels = []
+        all_preds = []
+
+        # Entrenar el modelo
+        num_epochs = 15
+        for epoch in range(num_epochs):
+            print(f'Epoch {epoch}/{num_epochs - 1}')
+            print('-' * 10)
+
+            # Cada época tiene una fase de entrenamiento, validación y prueba
+            for phase in ['train', 'valid', 'test']:
+                if phase == 'train':
+                    model_ft.train()  # Configurar el modelo en modo entrenamiento
+                else:
+                    model_ft.eval()   # Configurar el modelo en modo evaluación
+
+                running_loss = 0.0
+                running_corrects = 0
+
+                # Iterar sobre los datos
+                for inputs, labels in dataloaders[phase]:
+                    inputs = inputs.to(device)
+                    labels = labels.to(device)
+
+                    # Limpiar los gradientes de las variables optimizadas
+                    optimizer_ft.zero_grad()
+
+                    # Hacer la propagación hacia adelante
+                    with torch.set_grad_enabled(phase == 'train'):
+                        outputs = model_ft(inputs)
+                        _, preds = torch.max(outputs, 1)
+                        loss = criterion(outputs, labels)
+
+                        # Hacer la propagación hacia atrás y optimizar solo en la fase de entrenamiento
+                        if phase == 'train':
+                            loss.backward()
+                            optimizer_ft.step()
+
+                    # Estadísticas
+                    running_loss += loss.item() * inputs.size(0)
+                    running_corrects += torch.sum(preds == labels.data)
+
+                    # Almacenar etiquetas verdaderas y predichas en fase de prueba
+                    if phase == 'test':
+                        all_labels.extend(labels.cpu().numpy())
+                        all_preds.extend(preds.cpu().numpy())
+
+                if phase == 'train':
+                    exp_lr_scheduler.step()
+
+                epoch_loss = running_loss / dataset_sizes[phase]
+                epoch_acc = running_corrects.double() / dataset_sizes[phase]
+
+                print(f'{phase} Loss: {epoch_loss:.4f} Acc: {epoch_acc:.4f}')
+
+                # Guardar las pérdidas y precisiones
+                if phase == 'train':
+                    train_losses.append(epoch_loss)
+                    train_accuracies.append(epoch_acc)
+                elif phase == 'valid':
+                    valid_losses.append(epoch_loss)
+                    valid_accuracies.append(epoch_acc)
+                else:
+                    test_losses.append(epoch_loss)
+                    test_accuracies.append(epoch_acc)
+
+            print()
+
+        # Guardar el modelo
+        torch.save(model_ft.state_dict(), 'model_final.pth')
+
+        # Guardar el historial de entrenamiento
+        with open('training_history.txt', 'w') as f:
+            f.write(f'Train Losses: {train_losses}\n')
+            f.write(f'Train Accuracies: {train_accuracies}\n')
+            f.write(f'Validation Losses: {valid_losses}\n')
+            f.write(f'Validation Accuracies: {valid_accuracies}\n')
+            f.write(f'Test Losses: {test_losses}\n')
+            f.write(f'Test Accuracies: {test_accuracies}\n')
+
+        # Visualizar las gráficas
+        plt.figure(figsize=(10,5))
+        plt.title("Loss Over Epochs")
+        plt.plot(train_losses, label="Train Loss")
+        plt.plot(valid_losses, label="Validation Loss")
+        plt.plot(test_losses, label="Test Loss")
+        plt.xlabel("Epochs")
+        plt.ylabel("Loss")
+        plt.legend()
+        plt.show()
+
+        plt.figure(figsize=(10,5))
+        plt.title("Accuracy Over Epochs")
+        plt.plot(train_accuracies, label="Train Accuracy")
+        plt.plot(valid_accuracies, label="Validation Accuracy")
+        plt.plot(test_accuracies, label="Test Accuracy")
+        plt.xlabel("Epochs")
+        plt.ylabel("Accuracy")
+        plt.legend()
+        plt.show()
+
+        # Mostrar matriz de confusión
+        if all_labels and all_preds:
+            cm = confusion_matrix(all_labels, all_preds, labels=[0, 1, 2, 3])  # Ajustar etiquetas según sea necesario
+            plt.figure(figsize=(10, 7))
+            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=class_names, yticklabels=class_names)
+            plt.xlabel('Predicted')
+            plt.ylabel('True')
+            plt.title('Confusion Matrix')
+            plt.show()
+
+        QMessageBox.information(self, "Entrenamiento de AlexNet", "El entrenamiento de AlexNet se ha completado.")
+
+    
+    def train_model(self):
+        # Cuadro de diálogo para seleccionar el archivo del modelo
+        model_file, _ = QFileDialog.getOpenFileName(self, "Importa tu propio modelo", "", "Model Files (*.pt *.pth)")
+        if not model_file:
+            QMessageBox.warning(self, "Advertencia", "No se ha seleccionado ningún modelo.")
+            return None
+
+        # Cuadro de diálogo para seleccionar dispositivo
+        items = ("CPU", "GPU")
+        item, ok = QInputDialog.getItem(self, "Seleccionar Dispositivo", "Elija el dispositivo para entrenamiento:", items, 0, False)
+        if not ok or not item:
+            return None
+
+        device = 'cpu' if item == "CPU" else 'cuda'
+
+        if not self.dataset_dir:
+            QMessageBox.warning(self, "Advertencia", "No se ha seleccionado ningún dataset.")
+            return None
+
+        try:
+            # Cargar el state_dict del modelo especificado por el usuario
+            state_dict = torch.load(model_file, map_location=device)
+
+            # Inicializar una instancia del modelo y cargar el state_dict
+            # Detectar automáticamente el tipo de modelo
+            if "fasterrcnn" in model_file.lower():
+                model = torchvision.models.detection.fasterrcnn_resnet50_fpn(weights=None)
+            else:
+                model = torchvision.models.resnet50(weights=None)  # Cambia esto según sea necesario
+
+            model.load_state_dict(state_dict)
+            model.to(device)
+
+            # Configurar el optimizador y la función de pérdida
+            if isinstance(model, torchvision.models.detection.FasterRCNN):
+                params = [p for p in model.parameters() if p.requires_grad]
+                optimizer = optim.SGD(params, lr=0.005, momentum=0.9, weight_decay=0.0005)
+                lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=3, gamma=0.1)
+                criterion = None  # No se necesita para Faster R-CNN
+            else:
+                optimizer = optim.Adam(model.parameters(), lr=0.001)
+                criterion = nn.CrossEntropyLoss()
+
+            # Transformaciones y DataLoader
+            transform = transforms.Compose([transforms.Resize((224, 224)), transforms.ToTensor()])
+
+            if isinstance(model, torchvision.models.detection.FasterRCNN):
+                # Cargar datos del conjunto de entrenamiento
+                dataset = []
+                for filename in os.listdir(os.path.join(self.dataset_dir, 'train')):
+                    if filename.endswith('.jpg'):
+                        image_path = os.path.join(self.dataset_dir, 'train', filename)
+                        xml_path = image_path.replace('.jpg', '.xml')
+                        dataset.append((image_path, xml_path))
+                        
+                train_dataset = VOCDataset(dataset, transform=transform)
+                train_loader = DataLoader(train_dataset, batch_size=2, shuffle=True, num_workers=4, collate_fn=lambda x: tuple(zip(*x)))
+            else:
+                train_dataset = datasets.ImageFolder(self.dataset_dir, transform=transform)
+                train_loader = torch.utils.data.DataLoader(train_dataset, batch_size=32, shuffle=True)
+                
+                # Crear conjunto de validación
+                val_dataset = datasets.ImageFolder(self.dataset_dir, transform=transform)
+                val_loader = torch.utils.data.DataLoader(val_dataset, batch_size=32, shuffle=False)
+
+            # Función de entrenamiento
+            def train_model_generic(model, device, train_loader, val_loader, optimizer, criterion, scheduler, epochs=10):
+                model.train()
+                train_losses = []
+                train_accuracies = []
+                val_losses = []
+                val_accuracies = []
+
+                for epoch in range(epochs):
+                    epoch_loss = 0
+                    correct = 0
+                    total = 0
+
+                    for batch_idx, (inputs, labels) in enumerate(train_loader):
+                        optimizer.zero_grad()
+                        if isinstance(model, torchvision.models.detection.FasterRCNN):
+                            inputs = list(image.to(device) for image in inputs)
+                            targets = [{k: v.to(device) for k, v in t.items()} for t in labels]
+                            loss_dict = model(inputs, targets)
+                            losses = sum(loss for loss in loss_dict.values())
+                            losses.backward()
+                            optimizer.step()
+                            epoch_loss += losses.item()
+                        else:
+                            inputs, labels = inputs.to(device), labels.to(device)
+                            outputs = model(inputs)
+                            loss = criterion(outputs, labels)
+                            loss.backward()
+                            optimizer.step()
+
+                            epoch_loss += loss.item()
+                            _, predicted = outputs.max(1)
+                            total += labels.size(0)
+                            correct += predicted.eq(labels).sum().item()
+
+                        if scheduler:
+                            scheduler.step()
+
+                    epoch_loss /= len(train_loader)
+                    accuracy = 100. * correct / total if not isinstance(model, torchvision.models.detection.FasterRCNN) else None
+
+                    train_losses.append(epoch_loss)
+                    if accuracy is not None:
+                        train_accuracies.append(accuracy)
+
+                    print(f'Epoch {epoch+1}/{epochs}, Train Loss: {epoch_loss:.6f}', end='')
+                    if accuracy is not None:
+                        print(f', Train Accuracy: {accuracy:.2f}%')
+
+                    # Validación
+                    if not isinstance(model, torchvision.models.detection.FasterRCNN):
+                        model.eval()
+                        val_loss = 0
+                        correct = 0
+                        total = 0
+                        all_labels = []
+                        all_preds = []
+
+                        with torch.no_grad():
+                            for inputs, labels in val_loader:
+                                inputs, labels = inputs.to(device), labels.to(device)
+                                outputs = model(inputs)
+                                loss = criterion(outputs, labels)
+                                val_loss += loss.item()
+                                _, predicted = outputs.max(1)
+                                total += labels.size(0)
+                                correct += predicted.eq(labels).sum().item()
+                                all_labels.extend(labels.cpu().numpy())
+                                all_preds.extend(predicted.cpu().numpy())
+
+                        val_loss /= len(val_loader)
+                        val_accuracy = 100. * correct / total
+
+                        val_losses.append(val_loss)
+                        val_accuracies.append(val_accuracy)
+
+                        print(f', Val Loss: {val_loss:.6f}, Val Accuracy: {val_accuracy:.2f}%')
+
+                        model.train()
+
+                return train_losses, train_accuracies, val_losses, val_accuracies, all_labels, all_preds
+
+            # Entrenar el modelo y obtener métricas
+            train_losses, train_accuracies, val_losses, val_accuracies, all_labels, all_preds = train_model_generic(
+                model, device, train_loader, val_loader if not isinstance(model, torchvision.models.detection.FasterRCNN) else None, optimizer, criterion, lr_scheduler if isinstance(model, torchvision.models.detection.FasterRCNN) else None, epochs=10
+            )
+
+            # Guardar el modelo entrenado
+            model_save_path, _ = QFileDialog.getSaveFileName(self, "Guardar Modelo Entrenado", "", "Model Files (*.pt *.pth)")
+            if model_save_path:
+                torch.save(model.state_dict(), model_save_path)
+
+            # Generar y mostrar las gráficas
+            epochs_range = range(1, 11)
+
+            plt.figure(figsize=(15, 5))
+
+            plt.subplot(1, 3, 1)
+            plt.plot(epochs_range, train_losses, 'b', label='Train Loss')
+            plt.plot(epochs_range, val_losses, 'r', label='Val Loss')
+            plt.title('Loss over Epochs')
+            plt.xlabel('Epochs')
+            plt.ylabel('Loss')
+            plt.legend()
+
+            if train_accuracies:
+                plt.subplot(1, 3, 2)
+                plt.plot(epochs_range, train_accuracies, 'b', label='Train Accuracy')
+                plt.plot(epochs_range, val_accuracies, 'r', label='Val Accuracy')
+                plt.title('Accuracy over Epochs')
+                plt.xlabel('Epochs')
+                plt.ylabel('Accuracy')
+                plt.legend()
+
+            plt.tight_layout()
+            plt.show()
+
+            # Mostrar matriz de confusión
+            if all_labels and all_preds:
+                cm = confusion_matrix(all_labels, all_preds)
+                plt.figure(figsize=(10, 7))
+                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
+                plt.xlabel('Predicted')
+                plt.ylabel('True')
+                plt.title('Confusion Matrix')
+                plt.show()
+
+        except Exception as e:
+            QMessageBox.warning(self, "Advertencia", f"Error durante el entrenamiento: {str(e)}")
+            return None
+        else:
+            QMessageBox.information(self, "Información", "Entrenamiento completado.")
+            return model  # Devuelve el modelo entrenado
+
+    
+    
+    
     def validate_and_train(self):
         selected_model = self.model_selection_combo.currentText()
         if selected_model == "YoloV8":
             self.train()
+        elif selected_model == "AlexNet":
+            self.train_alexnet()
+        elif selected_model == "Importa tu propio modelo":
+            self.train_model()
         # Añadir lógica para otros modelos si es necesario

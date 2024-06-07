@@ -7,6 +7,7 @@ import numpy as np
 import json
 import supervision as sv
 import torch
+import collections
 from datetime import datetime
 from PyQt5.QtWidgets import (QApplication, QWidget, QLabel, QVBoxLayout, QHBoxLayout, 
                              QPushButton, QMessageBox, QComboBox, QFileDialog, QInputDialog, QDialog, QProgressBar,
@@ -34,9 +35,13 @@ def get_next_id(directory, base_name, extension):
     existing_ids = [int(f[len(base_name)+1:-len(extension)]) for f in existing_files if f[len(base_name)+1:-len(extension)].isdigit()]
     return max(existing_ids, default=0) + 1
 
+
 def export_to_pascal_voc_annotations(image_path, boxes, phrases, output_dir, labels):
     image = cv2.imread(image_path)
     height, width, depth = image.shape
+
+    # Obtener el siguiente ID para el archivo XML
+    xml_id = get_next_id(output_dir, "annotated_image", ".xml")
 
     # Crear el elemento raíz del XML
     annotation = ET.Element('annotation')
@@ -46,10 +51,10 @@ def export_to_pascal_voc_annotations(image_path, boxes, phrases, output_dir, lab
     folder.text = os.path.basename(output_dir)
 
     filename = ET.SubElement(annotation, 'filename')
-    filename.text = os.path.basename(image_path)
+    filename.text = f"annotated_image_{xml_id}.jpg"
 
     path = ET.SubElement(annotation, 'path')
-    path.text = image_path
+    path.text = os.path.join(output_dir, "..", "images", f"annotated_image_{xml_id}.jpg")
 
     source = ET.SubElement(annotation, 'source')
     database = ET.SubElement(source, 'database')
@@ -102,15 +107,27 @@ def export_to_pascal_voc_annotations(image_path, boxes, phrases, output_dir, lab
     xml_str = ET.tostring(annotation, encoding='utf-8')
     xml_pretty_str = minidom.parseString(xml_str).toprettyxml(indent='    ')
 
-    # Obtener el siguiente ID para el archivo XML
-    xml_id = get_next_id(output_dir, "annotated_image", ".xml")
     annotation_file_path = os.path.join(output_dir, f"annotated_image_{xml_id}.xml")
 
     # Guardar el archivo XML
     with open(annotation_file_path, 'w') as f:
         f.write(xml_pretty_str)
     print(f"Anotaciones Pascal VOC guardadas en: {annotation_file_path}")
-    
+
+    # Copiar la imagen original a la carpeta "images" con el nombre "annotated_image_id"
+    images_dir = os.path.join(output_dir, "..", "images")
+    create_dir(images_dir)
+    new_image_path = os.path.join(images_dir, f"annotated_image_{xml_id}{os.path.splitext(image_path)[1]}")
+    shutil.copy(image_path, new_image_path)
+    print(f"Imagen copiada a: {new_image_path}")
+
+    # Eliminar la imagen con el nombre "captura_id" si existe
+    captura_image_path = os.path.join(images_dir, os.path.basename(image_path))
+    if os.path.exists(captura_image_path):
+        os.remove(captura_image_path)
+        print(f"Imagen eliminada: {captura_image_path}")
+
+
 def export_to_coco(image_path, boxes, phrases, output_dir, labels):
     image = cv2.imread(image_path)
     height, width, _ = image.shape
@@ -281,7 +298,8 @@ def export_to_yolo(image_path, boxes, phrases, output_dir, labels):
         f.write(f"nc: {len(labels)}\n")
         f.write(f"names: {labels}\n")
     print(f"Saved data.yaml to {yaml_path}")
-    
+
+
 def show_mask(mask, image, random_color=True):
     if random_color:
         color = np.concatenate([np.random.random(3), np.array([0.8])], axis=0)
@@ -427,12 +445,13 @@ class CameraApp(QWidget):
         self.camera_combo.currentIndexChanged.connect(self.change_camera)
 
         # Botones de control con colores específicos
-        self.capture_button = self.create_button("Captura", "#3498db", "#2980b9", self.capture_and_label_image)
-        self.add_label_button = self.create_button("Agregar Etiquetas", "#9b59b6", "#8e44ad", self.add_labels)
-        self.upload_button = self.create_button("Cargar Imágenes", "#e67e22", "#d35400", self.upload_and_label_image)
-        self.dataset_button = self.create_button("Generación de Dataset", "#f1c40f", "#f39c12", self.open_dataset_generation_interface)
-        self.exit_button = self.create_button("Salir", "#e74c3c", "#c0392b", self.close_application)
-        self.training_button = self.create_button("Retroceder a pestaña anterior", "#9C27B0", "#8E24AA", self.open_welcome_interface)
+        self.capture_button = self.create_button("Captura", "#000000", "#333333", "#444444", "#666666", self.capture_and_label_image)
+        self.add_label_button = self.create_button("Agregar Etiquetas", "#000000", "#333333", "#444444", "#666666", self.add_labels)
+        self.upload_button = self.create_button("Cargar Imágenes", "#000000", "#333333", "#444444", "#666666", self.upload_and_label_image)
+        self.dataset_button = self.create_button("Generación de Dataset", "#000000", "#333333", "#444444", "#666666", self.open_dataset_generation_interface)
+        self.training_button = self.create_button("Retroceder a pestaña anterior", "#000000", "#333333", "#444444", "#666666", self.open_welcome_interface)
+        self.exit_button = self.create_button("Salir", "#e74c3c", "#c0392b", "#d35400", "#e74c3c", self.close_application)
+
 
         # Grupo de botones de modelo
         self.model_group = QButtonGroup(self)
@@ -492,11 +511,20 @@ class CameraApp(QWidget):
         self.load_models()
         self.change_camera(0)
 
-    def create_button(self, text, color, hover_color, callback):
+    def create_button(self, text, color_start, color_end, hover_color_start, hover_color_end, callback):
         button = QPushButton(text, self)
         button.setFont(QFont("Arial", 14))
-        button.setStyleSheet(f"QPushButton {{ background-color: {color}; color: white; border: none; padding: 10px; }}"
-                             f"QPushButton:hover {{ background-color: {hover_color}; }}")
+        button.setStyleSheet(f"""
+            QPushButton {{
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {color_start}, stop:1 {color_end});
+                color: white;
+                border: none;
+                padding: 10px;
+            }}
+            QPushButton:hover {{
+                background-color: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 {hover_color_start}, stop:1 {hover_color_end});
+            }}
+        """)
         button.clicked.connect(callback)
         return button
 
@@ -552,7 +580,7 @@ class CameraApp(QWidget):
                 #print("Failed to read frame from camera!")
                 self.camera_label.setText("Error: Failed to read frame")
         else:
-            #print("Camera not available!")
+            print("Camera not available!")
             self.camera_label.setText("Cámara no disponible")
 
     def upload_and_label_image(self):
