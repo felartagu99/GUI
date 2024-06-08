@@ -35,7 +35,6 @@ def get_next_id(directory, base_name, extension):
     existing_ids = [int(f[len(base_name)+1:-len(extension)]) for f in existing_files if f[len(base_name)+1:-len(extension)].isdigit()]
     return max(existing_ids, default=0) + 1
 
-
 def export_to_pascal_voc_annotations(image_path, boxes, phrases, output_dir, labels):
     image = cv2.imread(image_path)
     height, width, depth = image.shape
@@ -126,7 +125,6 @@ def export_to_pascal_voc_annotations(image_path, boxes, phrases, output_dir, lab
     if os.path.exists(captura_image_path):
         os.remove(captura_image_path)
         print(f"Imagen eliminada: {captura_image_path}")
-
 
 def export_to_coco(image_path, boxes, phrases, output_dir, labels):
     image = cv2.imread(image_path)
@@ -298,7 +296,6 @@ def export_to_yolo(image_path, boxes, phrases, output_dir, labels):
         f.write(f"nc: {len(labels)}\n")
         f.write(f"names: {labels}\n")
     print(f"Saved data.yaml to {yaml_path}")
-
 
 def show_mask(mask, image, random_color=True):
     if random_color:
@@ -734,21 +731,21 @@ class CameraApp(QWidget):
                         multimask_output=False,
                     )
 
-                    # Crear una carpeta para guardar las máscaras binarias dentro de exportation_in_COCO_with_Segmentation
+                    combined_mask = np.zeros((H, W), dtype=np.uint8)
+                    annotated_frame = cv2.imread(image_path)
                     coco_segmentation_dir = os.path.join(self.capture_dir, "exportation_in_COCO_with_Segmentation")
                     masks_dir = os.path.join(coco_segmentation_dir, "masks")
                     create_dir(coco_segmentation_dir)
                     create_dir(masks_dir)
 
-                    # Anotar la imagen con las máscaras y las cajas delimitadoras
-                    for i, mask in enumerate(masks):
-                        # Guardar la máscara binaria
+                    for mask in masks:
                         mask_array = (mask[0].cpu().numpy() * 255).astype(np.uint8)
-                        mask_path = os.path.join(masks_dir, f"mask_{image_id}_{i}.png")
-                        cv2.imwrite(mask_path, mask_array)
-
-                        # Anotar la imagen
+                        combined_mask = np.maximum(combined_mask, mask_array)
                         annotated_frame = show_mask(mask[0], annotated_frame)
+
+                    # Guardar la máscara combinada
+                    combined_mask_path = os.path.join(masks_dir, f"mask_{image_id}.png")
+                    cv2.imwrite(combined_mask_path, combined_mask)
 
                     # Dibujar bounding boxes de GroundingDINO
                     annotated_frame = draw_bounding_boxes(annotated_frame, boxes_xyxy.int().numpy(), phrases)
@@ -859,17 +856,21 @@ class CameraApp(QWidget):
                 multimask_output=False,
             )
 
+            combined_mask = np.zeros((H, W), dtype=np.uint8)
             annotated_frame = cv2.imread(image_path)
             coco_segmentation_dir = os.path.join(self.capture_dir, "exportation_in_COCO_with_Segmentation")
             masks_dir = os.path.join(coco_segmentation_dir, "masks")
             create_dir(coco_segmentation_dir)
             create_dir(masks_dir)
 
-            for i, mask in enumerate(masks):
+            for mask in masks:
                 mask_array = (mask[0].cpu().numpy() * 255).astype(np.uint8)
-                mask_path = os.path.join(masks_dir, f"mask_{image_id}_{i}.png")
-                cv2.imwrite(mask_path, mask_array)
+                combined_mask = np.maximum(combined_mask, mask_array)
                 annotated_frame = show_mask(mask[0], annotated_frame)
+
+            # Guardar la máscara combinada
+            combined_mask_path = os.path.join(masks_dir, f"mask_{image_id}.png")
+            cv2.imwrite(combined_mask_path, combined_mask)
 
             annotated_frame = draw_bounding_boxes(annotated_frame, boxes_xyxy.int().numpy(), phrases)
         else:
