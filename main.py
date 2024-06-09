@@ -420,7 +420,7 @@ class ConfirmationDialog(QDialog):
 class CameraApp(QWidget):
     def __init__(self, capture_dir, labels):
         super().__init__()
-        self.setWindowTitle("Aplicación de Cámara")
+        self.setWindowTitle("Interfaz de Etiquetado")
         self.resize(800, 600)
         
         self.capture_dir = capture_dir
