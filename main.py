@@ -297,9 +297,14 @@ def export_to_yolo(image_path, boxes, phrases, output_dir, labels):
         f.write(f"names: {labels}\n")
     print(f"Saved data.yaml to {yaml_path}")
 
+def generate_pastel_color():
+    base_color = np.random.random(3)
+    pastel_color = (base_color + np.array([1.0, 1.0, 1.0])) / 2  # Mezcla con blanco
+    return np.concatenate([pastel_color, np.array([0.6])], axis=0)
+
 def show_mask(mask, image, random_color=True):
     if random_color:
-        color = np.concatenate([np.random.random(3), np.array([0.8])], axis=0)
+        color = generate_pastel_color()
     else:
         color = np.array([30/255, 144/255, 255/255, 0.6])
     h, w = mask.shape[-2:]
@@ -312,9 +317,9 @@ def show_mask(mask, image, random_color=True):
 
 def draw_bounding_boxes(image, boxes, phrases):
     for box, phrase in zip(boxes, phrases):
-        color = np.concatenate([np.random.random(3), np.array([0.8])], axis=0)
+        color = generate_pastel_color()
         x1, y1, x2, y2 = box
-        cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
+        cv2.rectangle(image, (x1, y1), (x2, y2), color[:3] * 255, 2)
         cv2.putText(image, phrase, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
     return image
 
@@ -577,7 +582,7 @@ class CameraApp(QWidget):
                 #print("Failed to read frame from camera!")
                 self.camera_label.setText("Error: Failed to read frame")
         else:
-            print("Camera not available!")
+            #print("Camera not available!")
             self.camera_label.setText("Cámara no disponible")
 
     def upload_and_label_image(self):
@@ -594,8 +599,8 @@ class CameraApp(QWidget):
             mode_dialog = QMessageBox(self)
             mode_dialog.setWindowTitle("Modo de Etiquetado")
             mode_dialog.setText("¿Cómo quieres que se muestren las imágenes al ser etiquetadas?")
-            one_by_one_button = mode_dialog.addButton("Una a Una", QMessageBox.AcceptRole)
-            all_at_once_button = mode_dialog.addButton("Realizar todo el etiquetado sin mostrar previsualización", QMessageBox.RejectRole)
+            one_by_one_button = mode_dialog.addButton("Una a Una", QMessageBox.RejectRole)
+            all_at_once_button = mode_dialog.addButton("Solo mostrar imagenes por debajo de threshold", QMessageBox.RejectRole)
             mode_dialog.exec_()
 
             self.single_label_mode = (mode_dialog.clickedButton() == one_by_one_button)
