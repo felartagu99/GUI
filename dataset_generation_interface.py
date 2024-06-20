@@ -20,10 +20,6 @@ from PIL import Image
 from torchvision import (transforms, models, datasets)
 from torch.utils.data import DataLoader, Dataset
 from torchvision.datasets import VOCDetection
-from sklearn.metrics import confusion_matrix
-
-
-
 
 class VOCDataset(Dataset):
     def __init__(self, root_dir, transform=None):
@@ -235,9 +231,8 @@ class DatasetGenerationInterface(QWidget):
 
         self.train_label.setText(f"Train: {self.train_slider.value()}%")
         self.valid_label.setText(f"Valid: {self.valid_slider.value()}%")
-        self.test_label.setText(f"Test: {self.test_slider.value()}%")
-        
-        
+        self.test_label.setText(f"Test: {self.test_slider.value()}%")     
+   
     def adjust_slider(self, slider1, slider2, difference):
         if slider1.value() - difference >= 0:
             slider1.setValue(slider1.value() - difference)
@@ -860,16 +855,7 @@ class DatasetGenerationInterface(QWidget):
         plt.ylabel("Accuracy")
         plt.legend()
         plt.show()
-
-        # Mostrar matriz de confusión
-        if all_labels and all_preds:
-            cm = confusion_matrix(all_labels, all_preds, labels=[0, 1, 2, 3])  # Ajustar etiquetas según sea necesario
-            plt.figure(figsize=(10, 7))
-            sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', xticklabels=class_names, yticklabels=class_names)
-            plt.xlabel('Predicted')
-            plt.ylabel('True')
-            plt.title('Confusion Matrix')
-            plt.show()
+     
 
         QMessageBox.information(self, "Entrenamiento de AlexNet", "El entrenamiento de AlexNet se ha completado.")
 
@@ -1055,16 +1041,6 @@ class DatasetGenerationInterface(QWidget):
 
             plt.tight_layout()
             plt.show()
-
-            # Mostrar matriz de confusión
-            if all_labels and all_preds:
-                cm = confusion_matrix(all_labels, all_preds)
-                plt.figure(figsize=(10, 7))
-                sns.heatmap(cm, annot=True, fmt='d', cmap='Blues')
-                plt.xlabel('Predicted')
-                plt.ylabel('True')
-                plt.title('Confusion Matrix')
-                plt.show()
 
         except Exception as e:
             QMessageBox.warning(self, "Advertencia", f"Error durante el entrenamiento: {str(e)}")

@@ -35,7 +35,6 @@ def get_next_id(directory, base_name, extension):
     existing_ids = [int(f[len(base_name)+1:-len(extension)]) for f in existing_files if f[len(base_name)+1:-len(extension)].isdigit()]
     return max(existing_ids, default=0) + 1
 
-
 def export_to_pascal_voc_annotations(image_path, boxes, phrases, output_dir, labels):
     image = cv2.imread(image_path)
     height, width, depth = image.shape
@@ -126,7 +125,6 @@ def export_to_pascal_voc_annotations(image_path, boxes, phrases, output_dir, lab
     if os.path.exists(captura_image_path):
         os.remove(captura_image_path)
         print(f"Imagen eliminada: {captura_image_path}")
-
 
 def export_to_coco(image_path, boxes, phrases, output_dir, labels):
     image = cv2.imread(image_path)
@@ -299,10 +297,14 @@ def export_to_yolo(image_path, boxes, phrases, output_dir, labels):
         f.write(f"names: {labels}\n")
     print(f"Saved data.yaml to {yaml_path}")
 
+def generate_pastel_color():
+    base_color = np.random.random(3)
+    pastel_color = (base_color + np.array([1.0, 1.0, 1.0])) / 2  # Mezcla con blanco
+    return np.concatenate([pastel_color, np.array([0.6])], axis=0)
 
 def show_mask(mask, image, random_color=True):
     if random_color:
-        color = np.concatenate([np.random.random(3), np.array([0.8])], axis=0)
+        color = generate_pastel_color()
     else:
         color = np.array([30/255, 144/255, 255/255, 0.6])
     h, w = mask.shape[-2:]
@@ -315,9 +317,9 @@ def show_mask(mask, image, random_color=True):
 
 def draw_bounding_boxes(image, boxes, phrases):
     for box, phrase in zip(boxes, phrases):
-        color = np.concatenate([np.random.random(3), np.array([0.8])], axis=0)
+        color = generate_pastel_color()
         x1, y1, x2, y2 = box
-        cv2.rectangle(image, (x1, y1), (x2, y2), color, 2)
+        cv2.rectangle(image, (x1, y1), (x2, y2), color[:3] * 255, 2)
         cv2.putText(image, phrase, (x1, y1 - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
     return image
 
@@ -353,7 +355,7 @@ class ConfidenceThresholdDialog(QDialog):
         self.slider = QSlider(Qt.Horizontal)
         self.slider.setMinimum(0)
         self.slider.setMaximum(100)
-        self.slider.setValue(50)
+        self.slider.setValue(35)
         self.slider.setTickInterval(10)
         self.slider.setTickPosition(QSlider.TicksBelow)
 
@@ -423,7 +425,7 @@ class ConfirmationDialog(QDialog):
 class CameraApp(QWidget):
     def __init__(self, capture_dir, labels):
         super().__init__()
-        self.setWindowTitle("Aplicación de Cámara")
+        self.setWindowTitle("Interfaz de Etiquetado")
         self.resize(800, 600)
         
         self.capture_dir = capture_dir
@@ -580,7 +582,7 @@ class CameraApp(QWidget):
                 #print("Failed to read frame from camera!")
                 self.camera_label.setText("Error: Failed to read frame")
         else:
-            print("Camera not available!")
+            #print("Camera not available!")
             self.camera_label.setText("Cámara no disponible")
 
     def upload_and_label_image(self):
@@ -597,8 +599,8 @@ class CameraApp(QWidget):
             mode_dialog = QMessageBox(self)
             mode_dialog.setWindowTitle("Modo de Etiquetado")
             mode_dialog.setText("¿Cómo quieres que se muestren las imágenes al ser etiquetadas?")
-            one_by_one_button = mode_dialog.addButton("Una a Una", QMessageBox.AcceptRole)
-            all_at_once_button = mode_dialog.addButton("Realizar todo el etiquetado sin mostrar previsualización", QMessageBox.RejectRole)
+            one_by_one_button = mode_dialog.addButton("Una a Una", QMessageBox.RejectRole)
+            all_at_once_button = mode_dialog.addButton("Solo mostrar imagenes por debajo de threshold", QMessageBox.RejectRole)
             mode_dialog.exec_()
 
             self.single_label_mode = (mode_dialog.clickedButton() == one_by_one_button)
@@ -734,9 +736,21 @@ class CameraApp(QWidget):
                         multimask_output=False,
                     )
 
-                    # Anotar la imagen con las máscaras y las cajas delimitadoras
+                    combined_mask = np.zeros((H, W), dtype=np.uint8)
+                    annotated_frame = cv2.imread(image_path)
+                    coco_segmentation_dir = os.path.join(self.capture_dir, "exportation_in_COCO_with_Segmentation")
+                    masks_dir = os.path.join(coco_segmentation_dir, "masks")
+                    create_dir(coco_segmentation_dir)
+                    create_dir(masks_dir)
+
                     for mask in masks:
+                        mask_array = (mask[0].cpu().numpy() * 255).astype(np.uint8)
+                        combined_mask = np.maximum(combined_mask, mask_array)
                         annotated_frame = show_mask(mask[0], annotated_frame)
+
+                    # Guardar la máscara combinada
+                    combined_mask_path = os.path.join(masks_dir, f"mask_{image_id}.png")
+                    cv2.imwrite(combined_mask_path, combined_mask)
 
                     # Dibujar bounding boxes de GroundingDINO
                     annotated_frame = draw_bounding_boxes(annotated_frame, boxes_xyxy.int().numpy(), phrases)
@@ -759,11 +773,9 @@ class CameraApp(QWidget):
                 
                 if self.sam_button.isChecked():
                     # Crear la estructura de directorios para COCO with Segmentation
-                    coco_segmentation_dir = os.path.join(self.capture_dir, "exportation_in_COCO_with_Segmentation")
                     annotations_dir = os.path.join(coco_segmentation_dir, "annotations")
                     images_dir = os.path.join(coco_segmentation_dir, "images")
 
-                    create_dir(coco_segmentation_dir)
                     create_dir(annotations_dir)
                     create_dir(images_dir)
 
@@ -849,9 +861,21 @@ class CameraApp(QWidget):
                 multimask_output=False,
             )
 
+            combined_mask = np.zeros((H, W), dtype=np.uint8)
             annotated_frame = cv2.imread(image_path)
+            coco_segmentation_dir = os.path.join(self.capture_dir, "exportation_in_COCO_with_Segmentation")
+            masks_dir = os.path.join(coco_segmentation_dir, "masks")
+            create_dir(coco_segmentation_dir)
+            create_dir(masks_dir)
+
             for mask in masks:
+                mask_array = (mask[0].cpu().numpy() * 255).astype(np.uint8)
+                combined_mask = np.maximum(combined_mask, mask_array)
                 annotated_frame = show_mask(mask[0], annotated_frame)
+
+            # Guardar la máscara combinada
+            combined_mask_path = os.path.join(masks_dir, f"mask_{image_id}.png")
+            cv2.imwrite(combined_mask_path, combined_mask)
 
             annotated_frame = draw_bounding_boxes(annotated_frame, boxes_xyxy.int().numpy(), phrases)
         else:
@@ -879,7 +903,6 @@ class CameraApp(QWidget):
         else:
             confirmation_dialog = ConfirmationDialog(annotated_frame, self)
             proceed_with_labeling = (confirmation_dialog.exec_() == QDialog.Accepted)
-
 
         if proceed_with_labeling:
             labels_path = os.path.join(self.capture_dir, f"labels_{image_id}.json")
@@ -943,7 +966,6 @@ class CameraApp(QWidget):
             self.process_next_image()
         else:
             QMessageBox.information(self, "Completado", "Todas las imágenes han sido procesadas.")
-
         
 if __name__ == "__main__":
     app = QApplication(sys.argv)
